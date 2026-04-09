@@ -829,6 +829,9 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         case "requestNotificationSettings":
           this.sendNotificationSettings()
           break
+        case "requestSpeechSettings":
+          this.sendSpeechSettings()
+          break
         case "requestTimelineSetting":
           this.sendTimelineSetting()
           break
@@ -2166,6 +2169,33 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         soundAgent: sounds.get<string>("agent", "default"),
         soundPermissions: sounds.get<string>("permissions", "default"),
         soundErrors: sounds.get<string>("errors", "default"),
+      },
+    })
+  }
+
+  private sendSpeechSettings(): void {
+    const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+    this.postMessage({
+      type: "speechSettingsLoaded",
+      settings: {
+        enabled: speech.get<boolean>("enabled", false),
+        autoSpeak: speech.get<boolean>("autoSpeak", false),
+        provider: speech.get<string>("provider", "browser") as "rvc" | "azure" | "browser",
+        volume: speech.get<number>("volume", 80),
+        rvc: {
+          voiceId: speech.get<string>("rvc.voiceId", ""),
+          dockerPort: speech.get<number>("rvc.dockerPort", 5050),
+        },
+        azure: {
+          region: speech.get<string>("azure.region", "eastus"),
+          apiKey: speech.get<string>("azure.apiKey", ""),
+          voiceId: speech.get<string>("azure.voiceId", "en-US-JennyNeural"),
+        },
+        browser: {
+          voiceURI: speech.get<string>("browser.voiceURI", ""),
+          rate: speech.get<number>("browser.rate", 1.0),
+          pitch: speech.get<number>("browser.pitch", 1.0),
+        },
       },
     })
   }

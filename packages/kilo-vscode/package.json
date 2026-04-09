@@ -726,6 +726,73 @@
           "default": false,
           "description": "Run browser automation in headless mode (no visible window). When disabled, you can watch the agent interact with the browser."
         },
+        "kilo-code.new.speech.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable text-to-speech output for assistant replies."
+        },
+        "kilo-code.new.speech.autoSpeak": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically speak assistant replies when they complete."
+        },
+        "kilo-code.new.speech.provider": {
+          "type": "string",
+          "default": "browser",
+          "enum": ["browser", "azure", "rvc"],
+          "description": "TTS provider: browser (Web Speech API), azure (Azure Neural TTS), or rvc (Docker RVC)."
+        },
+        "kilo-code.new.speech.volume": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Speech output volume (0-100)."
+        },
+        "kilo-code.new.speech.rvc.voiceId": {
+          "type": "string",
+          "default": "",
+          "description": "RVC voice model folder name."
+        },
+        "kilo-code.new.speech.rvc.dockerPort": {
+          "type": "number",
+          "default": 5050,
+          "description": "Port for the RVC Docker container."
+        },
+        "kilo-code.new.speech.azure.region": {
+          "type": "string",
+          "default": "eastus",
+          "description": "Azure Cognitive Services region."
+        },
+        "kilo-code.new.speech.azure.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Azure Cognitive Services subscription key."
+        },
+        "kilo-code.new.speech.azure.voiceId": {
+          "type": "string",
+          "default": "en-US-JennyNeural",
+          "description": "Azure Neural TTS voice ID."
+        },
+        "kilo-code.new.speech.browser.voiceURI": {
+          "type": "string",
+          "default": "",
+          "description": "Browser Web Speech API voice URI."
+        },
+        "kilo-code.new.speech.browser.rate": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Browser speech rate."
+        },
+        "kilo-code.new.speech.browser.pitch": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Browser speech pitch."
+        },
         "kilo-code.new.notifications.agent": {
           "type": "boolean",
           "default": true,

@@ -1,4 +1,4 @@
-import { Component, createSignal, createMemo, Switch, Match, Show, onMount, onCleanup } from "solid-js"
+import { Component, createSignal, createMemo, createEffect, on, Switch, Match, Show, onMount, onCleanup } from "solid-js"
 import { ThemeProvider } from "@kilocode/kilo-ui/theme"
 import { DialogProvider } from "@kilocode/kilo-ui/context/dialog"
 import { MarkedProvider } from "@kilocode/kilo-ui/context/marked"
@@ -32,6 +32,7 @@ import HistoryView from "./components/history/HistoryView"
 import { MigrationWizard } from "./components/migration" // legacy-migration
 import { NotificationsProvider } from "./context/notifications"
 import type { Message as SDKMessage, Part as SDKPart } from "@kilocode/sdk/v2"
+import type { ExtensionMessage } from "./types/messages"
 import "./styles/chat.css"
 
 type ViewType = "newTask" | "marketplace" | "history" | "profile" | "settings" | "subAgentViewer"
@@ -103,6 +104,105 @@ export const DataBridge: Component<{ children: any }> = (props) => {
     if (!dir) return ""
     return dir.endsWith("/") || dir.endsWith("\\") ? dir : dir + "/"
   }
+
+  // ── Auto-speak: speak last assistant reply when session goes idle ──────
+  const [speechSettings, setSpeechSettings] = createSignal<{
+    enabled: boolean
+    autoSpeak: boolean
+    provider: "rvc" | "azure" | "browser"
+    volume: number
+    rvc: { voiceId: string; dockerPort: number }
+    azure: { region: string; apiKey: string; voiceId: string }
+    browser: { voiceURI: string; rate: number; pitch: number }
+  } | null>(null)
+  let lastSpokenMessageId = ""
+
+  // Request speech settings on mount + listen for updates
+  onMount(() => vscode.postMessage({ type: "requestSpeechSettings" }))
+  const unsubSpeech = vscode.onMessage((msg: ExtensionMessage) => {
+    if (msg.type === "speechSettingsLoaded") {
+      setSpeechSettings(msg.settings as any)
+    }
+  })
+  onCleanup(unsubSpeech)
+
+  // Watch current session status for busy → idle transition
+  createEffect(
+    on(
+      () => session.status(),
+      (newStatus, prevStatus) => {
+        if (prevStatus !== "busy" || newStatus !== "idle") return
+        const ss = speechSettings()
+        if (!ss?.enabled || !ss?.autoSpeak) return
+
+        const id = session.currentSessionID()
+        if (!id) return
+        const msgs = session.messages()
+        if (!msgs.length) return
+
+        // Find last assistant message
+        const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant")
+        if (!lastAssistant || lastAssistant.id === lastSpokenMessageId) return
+        lastSpokenMessageId = lastAssistant.id
+
+        // Extract text parts
+        const parts = session.allParts()[lastAssistant.id] ?? []
+        const textContent = parts
+          .filter((p: any) => p.type === "text")
+          .map((p: any) => p.text)
+          .join(" ")
+          .trim()
+        if (!textContent) return
+
+        // Speak via browser TTS (runs in webview)
+        const vol = ss.volume / 100
+        if (ss.provider === "browser") {
+          const utterance = new SpeechSynthesisUtterance(textContent.slice(0, 2000))
+          utterance.volume = vol
+          utterance.rate = ss.browser.rate
+          utterance.pitch = ss.browser.pitch
+          if (ss.browser.voiceURI) {
+            const voice = speechSynthesis.getVoices().find((v) => v.voiceURI === ss.browser.voiceURI)
+            if (voice) utterance.voice = voice
+          }
+          speechSynthesis.speak(utterance)
+        } else if (ss.provider === "azure" && ss.azure.apiKey) {
+          const escXml = (s: string) =>
+            s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${ss.azure.voiceId}">${escXml(textContent.slice(0, 2000))}</voice></speak>`
+          fetch(`https://${ss.azure.region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+            method: "POST",
+            headers: {
+              "Ocp-Apim-Subscription-Key": ss.azure.apiKey,
+              "Content-Type": "application/ssml+xml",
+              "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+            },
+            body: ssml,
+          })
+            .then((r) => r.blob())
+            .then((blob) => {
+              const audio = new Audio(URL.createObjectURL(blob))
+              audio.volume = vol
+              audio.play()
+            })
+            .catch((e) => console.error("[Speech] Azure auto-speak failed:", e))
+        } else if (ss.provider === "rvc") {
+          fetch(`http://localhost:${ss.rvc.dockerPort}/synthesize`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: textContent.slice(0, 2000), voice_id: ss.rvc.voiceId }),
+          })
+            .then((r) => r.blob())
+            .then((blob) => {
+              const audio = new Audio(URL.createObjectURL(blob))
+              audio.volume = vol
+              audio.play()
+            })
+            .catch((e) => console.error("[Speech] RVC auto-speak failed:", e))
+        }
+      },
+    ),
+  )
 
   return (
     <DataProvider

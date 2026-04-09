@@ -1389,6 +1389,19 @@ export interface CustomProviderModelsFetchedMessage {
   auth?: boolean
 }
 
+export interface SpeechSettingsLoadedMessage {
+  type: "speechSettingsLoaded"
+  settings: {
+    enabled: boolean
+    autoSpeak: boolean
+    provider: "rvc" | "azure" | "browser"
+    volume: number
+    rvc: { voiceId: string; dockerPort: number }
+    azure: { region: string; apiKey: string; voiceId: string }
+    browser: { voiceURI: string; rate: number; pitch: number }
+  }
+}
+
 export type ExtensionMessage =
   | ReadyMessage
   | ConnectionStateMessage
@@ -1433,6 +1446,7 @@ export type ExtensionMessage =
   | ConfigUpdatedMessage
   | GlobalConfigLoadedMessage
   | NotificationSettingsLoadedMessage
+  | SpeechSettingsLoadedMessage
   | TimelineSettingLoadedMessage
   | NotificationsLoadedMessage
   | AgentManagerSessionMetaMessage
@@ -1809,6 +1823,10 @@ export interface UpdateConfigMessage {
 
 export interface RequestNotificationSettingsMessage {
   type: "requestNotificationSettings"
+}
+
+export interface RequestSpeechSettingsMessage {
+  type: "requestSpeechSettings"
 }
 
 export interface ResetAllSettingsRequest {
@@ -2319,6 +2337,7 @@ export type WebviewMessage =
   | RequestGlobalConfigMessage
   | UpdateConfigMessage
   | RequestNotificationSettingsMessage
+  | RequestSpeechSettingsMessage
   | ResetAllSettingsRequest
   | SettingsTabChangedMessage
   | SyncSessionRequest

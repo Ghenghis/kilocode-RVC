@@ -21,6 +21,7 @@ import ContextTab from "./ContextTab"
 import ExperimentalTab from "./ExperimentalTab"
 import LanguageTab from "./LanguageTab"
 import AboutKiloCodeTab from "./AboutKiloCodeTab"
+import SpeechTab from "./SpeechTab"
 import { useServer } from "../../context/server"
 
 export interface SettingsProps {
@@ -142,6 +143,10 @@ const Settings: Component<SettingsProps> = (props) => {
             <Icon name="settings-gear" />
             <span class="label">{language.t("settings.experimental.title")}</span>
           </Tabs.Trigger>
+          <Tabs.Trigger value="speech">
+            <Icon name="prompt" />
+            <span class="label">{language.t("settings.speech.title")}</span>
+          </Tabs.Trigger>
           <Tabs.Trigger value="language">
             <Icon name="speech-bubble" />
             <span class="label">{language.t("settings.language.title")}</span>
@@ -196,6 +201,10 @@ const Settings: Component<SettingsProps> = (props) => {
         <Tabs.Content value="experimental">
           <h3>{language.t("settings.experimental.title")}</h3>
           <ExperimentalTab />
+        </Tabs.Content>
+        <Tabs.Content value="speech">
+          <h3>{language.t("settings.speech.title")}</h3>
+          <SpeechTab />
         </Tabs.Content>
         <Tabs.Content value="language">
           <h3>{language.t("settings.language.title")}</h3>
