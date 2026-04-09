@@ -43,6 +43,13 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   { value: "rvc", labelKey: "settings.speech.provider.rvc" },
 ]
 
+// ── RVC voice name formatter ──────────────────────────────────────────────
+function formatRvcName(folderId: string): string {
+  return folderId
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 // ── TTS playback (browser-only, runs in webview) ──────────────────────────
 let currentAudio: HTMLAudioElement | undefined
 let currentUtterance: SpeechSynthesisUtterance | undefined
@@ -136,6 +143,8 @@ const SpeechTab: Component = () => {
   const [previewing, setPreviewing] = createSignal(false)
   const [previewText, setPreviewText] = createSignal("Hello! This is a preview of the speech output.")
   const [rvcOnline, setRvcOnline] = createSignal(false)
+  const [rvcVoices, setRvcVoices] = createSignal<Array<{ id: string; sizeMB: number }>>([])
+  const [rvcLoading, setRvcLoading] = createSignal(false)
   const [browserVoices, setBrowserVoices] = createSignal<SpeechSynthesisVoice[]>([])
   const [azureLocale, setAzureLocale] = createSignal("all")
 
@@ -161,13 +170,32 @@ const SpeechTab: Component = () => {
     stopPlayback()
   })
 
-  // Check RVC health when provider is rvc
+  // Check RVC health + fetch voices when provider is rvc
+  const refreshRvc = async () => {
+    const port = settings().rvc.dockerPort
+    setRvcLoading(true)
+    try {
+      const healthResp = await fetch(`http://localhost:${port}/health`)
+      setRvcOnline(healthResp.ok)
+      if (healthResp.ok) {
+        const voicesResp = await fetch(`http://localhost:${port}/voices`)
+        if (voicesResp.ok) {
+          const voices = await voicesResp.json()
+          setRvcVoices(Array.isArray(voices) ? voices : [])
+        }
+      }
+    } catch {
+      setRvcOnline(false)
+      setRvcVoices([])
+    } finally {
+      setRvcLoading(false)
+    }
+  }
+
   createEffect(() => {
     const s = settings()
     if (s.provider === "rvc") {
-      fetch(`http://localhost:${s.rvc.dockerPort}/health`)
-        .then((r) => setRvcOnline(r.ok))
-        .catch(() => setRvcOnline(false))
+      void refreshRvc()
     }
   })
 
@@ -280,6 +308,95 @@ const SpeechTab: Component = () => {
       {/* RVC Provider Settings */}
       <Show when={provider() === "rvc"}>
         <h4 style={{ "margin-top": "0", "margin-bottom": "8px" }}>{language.t("settings.speech.rvc.title")}</h4>
+
+        {/* Setup instructions */}
+        <div
+          style={{
+            background: "var(--vscode-textBlockQuote-background)",
+            border: "1px solid var(--vscode-panel-border)",
+            "border-radius": "4px",
+            padding: "12px 16px",
+            "margin-bottom": "12px",
+          }}
+        >
+          <p
+            style={{
+              "font-size": "12px",
+              color: "var(--vscode-descriptionForeground)",
+              margin: "0 0 8px 0",
+              "line-height": "1.5",
+              "font-weight": "600",
+            }}
+          >
+            {language.t("settings.speech.rvc.setup.title")}
+          </p>
+          <p
+            style={{
+              "font-size": "12px",
+              color: "var(--vscode-descriptionForeground)",
+              margin: "0 0 8px 0",
+              "line-height": "1.5",
+            }}
+          >
+            {language.t("settings.speech.rvc.setup.step1")}
+          </p>
+          <div
+            style={{
+              background: "var(--vscode-editor-background)",
+              border: "1px solid var(--vscode-input-border)",
+              "border-radius": "4px",
+              padding: "8px 12px",
+              "font-family": "var(--vscode-editor-font-family, monospace)",
+              "font-size": "12px",
+              color: "var(--vscode-editor-foreground)",
+              "margin-bottom": "8px",
+              "white-space": "pre-wrap",
+              "word-break": "break-all",
+              "user-select": "all",
+            }}
+          >
+            docker pull ghcr.io/ghenghis/kilocode-rvc:latest{"\n"}docker run -d -p 5050:5050 --name kilocode-rvc ghcr.io/ghenghis/kilocode-rvc:latest
+          </div>
+          <p
+            style={{
+              "font-size": "12px",
+              color: "var(--vscode-descriptionForeground)",
+              margin: "0 0 8px 0",
+              "line-height": "1.5",
+            }}
+          >
+            {language.t("settings.speech.rvc.setup.step2")}
+          </p>
+          <div
+            style={{
+              background: "var(--vscode-editor-background)",
+              border: "1px solid var(--vscode-input-border)",
+              "border-radius": "4px",
+              padding: "8px 12px",
+              "font-family": "var(--vscode-editor-font-family, monospace)",
+              "font-size": "12px",
+              color: "var(--vscode-editor-foreground)",
+              "margin-bottom": "8px",
+              "white-space": "pre-wrap",
+              "word-break": "break-all",
+              "user-select": "all",
+            }}
+          >
+            docker cp ./my-voice-model kilocode-rvc:/app/voices/my-voice-model
+          </div>
+          <p
+            style={{
+              "font-size": "11px",
+              color: "var(--vscode-descriptionForeground)",
+              margin: 0,
+              "line-height": "1.4",
+              "font-style": "italic",
+            }}
+          >
+            {language.t("settings.speech.rvc.setup.note")}
+          </p>
+        </div>
+
         <Card>
           <SettingsRow
             title={language.t("settings.speech.rvc.port.title")}
@@ -303,6 +420,14 @@ const SpeechTab: Component = () => {
                   "text-align": "right",
                 }}
               />
+              <Button
+                variant="secondary"
+                size="small"
+                onClick={() => void refreshRvc()}
+                disabled={rvcLoading()}
+              >
+                {rvcLoading() ? language.t("settings.speech.rvc.checking") : language.t("settings.speech.rvc.refresh")}
+              </Button>
               <span
                 style={{
                   "font-size": "11px",
@@ -320,20 +445,45 @@ const SpeechTab: Component = () => {
             description={language.t("settings.speech.rvc.voice.description")}
             last
           >
-            <input
-              type="text"
-              value={settings().rvc.voiceId}
-              onInput={(e) => updateNested("rvc", "voiceId", e.currentTarget.value)}
-              placeholder="e.g. en-female-aria"
-              style={{
-                width: "180px",
-                background: "var(--vscode-input-background)",
-                color: "var(--vscode-input-foreground)",
-                border: "1px solid var(--vscode-input-border)",
-                "border-radius": "4px",
-                padding: "4px 8px",
-              }}
-            />
+            <Show
+              when={rvcOnline() && rvcVoices().length > 0}
+              fallback={
+                <div style={{ display: "flex", "flex-direction": "column", gap: "4px" }}>
+                  <input
+                    type="text"
+                    value={settings().rvc.voiceId}
+                    onInput={(e) => updateNested("rvc", "voiceId", e.currentTarget.value)}
+                    placeholder={language.t("settings.speech.rvc.voice.placeholder")}
+                    style={{
+                      width: "180px",
+                      background: "var(--vscode-input-background)",
+                      color: "var(--vscode-input-foreground)",
+                      border: "1px solid var(--vscode-input-border)",
+                      "border-radius": "4px",
+                      padding: "4px 8px",
+                    }}
+                  />
+                  <Show when={!rvcOnline()}>
+                    <span style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)" }}>
+                      {language.t("settings.speech.rvc.voice.startDocker")}
+                    </span>
+                  </Show>
+                </div>
+              }
+            >
+              <Select
+                options={rvcVoices()}
+                current={rvcVoices().find((v) => v.id === settings().rvc.voiceId)}
+                value={(o: { id: string; sizeMB: number }) => o.id}
+                label={(o: { id: string; sizeMB: number }) => `${formatRvcName(o.id)} (${o.sizeMB} MB)`}
+                onSelect={(o: { id: string; sizeMB: number } | undefined) => {
+                  if (o) updateNested("rvc", "voiceId", o.id)
+                }}
+                variant="secondary"
+                size="small"
+                triggerVariant="settings"
+              />
+            </Show>
           </SettingsRow>
         </Card>
       </Show>
