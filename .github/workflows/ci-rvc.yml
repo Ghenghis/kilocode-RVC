@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run typecheck
+        run: bun typecheck
+
+  unit-tests:
+    name: Unit Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "bot@kilocode.ai"
+          git config --global user.name "kilocode"
+
+      - name: Run unit tests
+        run: bun turbo test
+        continue-on-error: true
+
+  lint-docker:
+    name: Lint RVC Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/rvc/Dockerfile
+          failure-threshold: warning
+
+  build-check:
+    name: Build Check
+    needs: [typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Build app
+        run: bun --cwd packages/app build

@@ -1,0 +1,332 @@
+import path from "path"
+import fs from "fs/promises"
+import { describe, expect, test } from "bun:test"
+import { fileURLToPath } from "url"
+import { Instance } from "../../src/project/instance"
+import { Session } from "../../src/session"
+import { MessageV2 } from "../../src/session/message-v2"
+import { SessionPrompt } from "../../src/session/prompt"
+import { Log } from "../../src/util/log"
+import { tmpdir } from "../fixture/fixture"
+
+Log.init({ print: false })
+
+describe("session.prompt missing file", () => {
+  test("does not fail the prompt when a file part is missing", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+
+        const missing = path.join(tmp.path, "does-not-exist.ts")
+        const msg = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "please review @does-not-exist.ts" },
+            {
+              type: "file",
+              mime: "text/plain",
+              url: `file://${missing}`,
+              filename: "does-not-exist.ts",
+            },
+          ],
+        })
+
+        if (msg.info.role !== "user") throw new Error("expected user message")
+
+        const hasFailure = msg.parts.some(
+          (part) => part.type === "text" && part.synthetic && part.text.includes("Read tool failed to read"),
+        )
+        expect(hasFailure).toBe(true)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+
+  test("keeps stored part order stable when file resolution is async", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+
+        const missing = path.join(tmp.path, "still-missing.ts")
+        const msg = await SessionPrompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            {
+              type: "file",
+              mime: "text/plain",
+              url: `file://${missing}`,
+              filename: "still-missing.ts",
+            },
+            { type: "text", text: "after-file" },
+          ],
+        })
+
+        if (msg.info.role !== "user") throw new Error("expected user message")
+
+        const stored = await MessageV2.get({
+          sessionID: session.id,
+          messageID: msg.info.id,
+        })
+        const text = stored.parts.filter((part) => part.type === "text").map((part) => part.text)
+
+        expect(text[0]?.startsWith("Called the Read tool with the following input:")).toBe(true)
+        expect(text[1]?.includes("Read tool failed to read")).toBe(true)
+        expect(text[2]).toBe("after-file")
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+})
+
+describe("session.prompt special characters", () => {
+  test("handles filenames with # character", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "file#name.txt"), "special content\n")
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        const template = "Read @file#name.txt"
+        const parts = await SessionPrompt.resolvePromptParts(template)
+        const fileParts = parts.filter((part) => part.type === "file")
+
+        expect(fileParts.length).toBe(1)
+        expect(fileParts[0].filename).toBe("file#name.txt")
+        expect(fileParts[0].url).toContain("%23")
+
+        const decodedPath = fileURLToPath(fileParts[0].url)
+        expect(decodedPath).toBe(path.join(tmp.path, "file#name.txt"))
+
+        const message = await SessionPrompt.prompt({
+          sessionID: session.id,
+          parts,
+          noReply: true,
+        })
+        const stored = await MessageV2.get({ sessionID: session.id, messageID: message.info.id })
+        const textParts = stored.parts.filter((part) => part.type === "text")
+        const hasContent = textParts.some((part) => part.text.includes("special content"))
+        expect(hasContent).toBe(true)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+})
+
+describe("session.prompt agent variant", () => {
+  test("applies agent variant only when using agent model", async () => {
+    const prev = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = "test-openai-key"
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        config: {
+          agent: {
+            build: {
+              model: "openai/gpt-5.2",
+              variant: "xhigh",
+            },
+          },
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+
+          const other = await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "opencode", modelID: "kimi-k2.5-free" },
+            noReply: true,
+            parts: [{ type: "text", text: "hello" }],
+          })
+          if (other.info.role !== "user") throw new Error("expected user message")
+          expect(other.info.variant).toBeUndefined()
+
+          const match = await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            noReply: true,
+            parts: [{ type: "text", text: "hello again" }],
+          })
+          if (match.info.role !== "user") throw new Error("expected user message")
+          expect(match.info.model).toEqual({ providerID: "openai", modelID: "gpt-5.2" })
+          expect(match.info.variant).toBe("xhigh")
+
+          const override = await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            noReply: true,
+            variant: "high",
+            parts: [{ type: "text", text: "hello third" }],
+          })
+          if (override.info.role !== "user") throw new Error("expected user message")
+          expect(override.info.variant).toBe("high")
+
+          await Session.remove(session.id)
+        },
+      })
+    } finally {
+      if (prev === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = prev
+    }
+  })
+})
+
+// kilocode_change start
+function deferred<T>() {
+  const result = {} as { promise: Promise<T>; resolve: (value: T) => void }
+  result.promise = new Promise((resolve) => {
+    result.resolve = resolve
+  })
+  return result
+}
+
+describe("session.prompt abort", () => {
+  test("returns the interrupted assistant turn when the current prompt is cancelled", async () => {
+    const dir = path.dirname(fileURLToPath(import.meta.url))
+    const fixtures = (await Bun.file(path.join(dir, "../tool/fixtures/models-api.json")).json()) as Record<
+      string,
+      { models: Record<string, { id: string }> } & Record<string, unknown>
+    >
+    const model = fixtures.openai.models["gpt-5.2"]
+    const started = deferred<void>()
+    const payload = new TextEncoder().encode(
+      [
+        `data: ${JSON.stringify({
+          type: "response.created",
+          response: {
+            id: "resp-1",
+            created_at: Math.floor(Date.now() / 1000),
+            model: model.id,
+            service_tier: null,
+          },
+        })}`,
+        "",
+      ].join("\n\n"),
+    )
+    const server = Bun.serve({
+      port: 0,
+      fetch(req: Request) {
+        const url = new URL(req.url)
+        if (!url.pathname.endsWith("/responses")) {
+          return new Response("unexpected request", { status: 404 })
+        }
+        started.resolve()
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(payload)
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          },
+        )
+      },
+    })
+
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        init: async (root) => {
+          const dir = path.join(root, ".opencode")
+          await fs.mkdir(dir, { recursive: true })
+          await Bun.write(
+            path.join(dir, "opencode.json"),
+            JSON.stringify({
+              $schema: "https://app.kilo.ai/config.json",
+              enabled_providers: ["openai"],
+              provider: {
+                openai: {
+                  name: "OpenAI",
+                  env: ["OPENAI_API_KEY"],
+                  npm: "@ai-sdk/openai",
+                  api: "https://api.openai.com/v1",
+                  models: {
+                    [model.id]: model,
+                  },
+                  options: {
+                    apiKey: "test-openai-key",
+                    baseURL: `${server.url.origin}/v1`,
+                  },
+                },
+              },
+            }),
+          )
+        },
+      })
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({})
+          const run = SessionPrompt.prompt({
+            sessionID: session.id,
+            model: {
+              providerID: "openai",
+              modelID: model.id,
+            },
+            parts: [{ type: "text", text: "say hello" }],
+          })
+
+          await started.promise
+          SessionPrompt.cancel(session.id)
+
+          const result = await run
+          expect(result.info.role).toBe("assistant")
+          if (result.info.role !== "assistant") throw new Error("expected assistant message")
+          expect(result.info.error?.name).toBe("MessageAbortedError")
+
+          const messages = await Session.messages({ sessionID: session.id })
+          const assistant = messages.find((item) => item.info.role === "assistant")
+          expect(assistant?.info.id).toBe(result.info.id)
+
+          await Session.remove(session.id)
+        },
+      })
+    } finally {
+      server.stop(true)
+    }
+  }, 15000)
+})
+// kilocode_change end
