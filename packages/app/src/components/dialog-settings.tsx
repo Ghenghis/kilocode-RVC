@@ -33,7 +33,7 @@ export const DialogSettings: Component = () => {
                       {language.t("settings.tab.shortcuts")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="speech">
-                      <Icon name="volume-2" />
+                      <Icon name="speech-bubble" />
                       {language.t("settings.tab.speech")}
                     </Tabs.Trigger>
                   </div>

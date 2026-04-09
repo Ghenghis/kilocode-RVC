@@ -203,7 +203,7 @@ export const SettingsSpeech: Component = () => {
                     class="w-24 bg-surface-base border border-border-base rounded px-2 py-1 text-12-regular text-text-strong text-right"
                   />
                   <Button size="small" variant="secondary" onClick={() => void refreshRvcVoices()}>
-                    <Icon name="refresh" size="small" />
+                    <Icon name="history" size="small" />
                   </Button>
                   <span class={`text-11-regular ${rvcOnline() ? "text-green-400" : "text-red-400"}`}>
                     {rvcOnline()
@@ -389,7 +389,7 @@ export const SettingsSpeech: Component = () => {
                   onClick={() => void handlePreview()}
                   disabled={!previewText().trim()}
                 >
-                  <Icon name={previewing() ? "square" : "play"} size="small" />
+                  <Icon name={previewing() ? "stop" : "enter"} size="small" />
                   {previewing()
                     ? language.t("settings.speech.preview.stop")
                     : language.t("settings.speech.preview.play")}
