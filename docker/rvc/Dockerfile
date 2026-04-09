@@ -16,6 +16,6 @@ COPY server.py .
 
 VOLUME ["/models"]
 
-EXPOSE 7860
+EXPOSE 5050
 
 CMD ["python", "server.py"]

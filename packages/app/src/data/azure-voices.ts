@@ -34,6 +34,24 @@ export const AZURE_VOICES: AzureVoice[] = [
 	{ id: "en-US-SaraNeural", locale: "en-US", name: "Sara (US)", gender: "Female" },
 	{ id: "en-US-SteffanNeural", locale: "en-US", name: "Steffan (US)", gender: "Male" },
 	{ id: "en-US-TonyNeural", locale: "en-US", name: "Tony (US)", gender: "Male" },
+	// en-US Multilingual (premium quality, 2024+)
+	{ id: "en-US-AvaMultilingualNeural", locale: "en-US", name: "Ava Multilingual (US)", gender: "Female" },
+	{ id: "en-US-AndrewMultilingualNeural", locale: "en-US", name: "Andrew Multilingual (US)", gender: "Male" },
+	{ id: "en-US-EmmaMultilingualNeural", locale: "en-US", name: "Emma Multilingual (US)", gender: "Female" },
+	{ id: "en-US-BrianMultilingualNeural", locale: "en-US", name: "Brian Multilingual (US)", gender: "Male" },
+	{ id: "en-US-RyanMultilingualNeural", locale: "en-US", name: "Ryan Multilingual (US)", gender: "Male" },
+	{ id: "en-US-AdamMultilingualNeural", locale: "en-US", name: "Adam Multilingual (US)", gender: "Male" },
+	// en-US OpenAI-compatible voices
+	{ id: "en-US-AlloyMultilingualNeural", locale: "en-US", name: "Alloy (US)", gender: "Male" },
+	{ id: "en-US-EchoMultilingualNeural", locale: "en-US", name: "Echo (US)", gender: "Male" },
+	{ id: "en-US-FableMultilingualNeural", locale: "en-US", name: "Fable (US)", gender: "Male" },
+	{ id: "en-US-NovaMultilingualNeural", locale: "en-US", name: "Nova (US)", gender: "Female" },
+	{ id: "en-US-OnyxMultilingualNeural", locale: "en-US", name: "Onyx (US)", gender: "Male" },
+	{ id: "en-US-ShimmerMultilingualNeural", locale: "en-US", name: "Shimmer (US)", gender: "Female" },
+	// en-US newer 2024 voices
+	{ id: "en-US-BlueNeural", locale: "en-US", name: "Blue (US)", gender: "Female" },
+	{ id: "en-US-KaiNeural", locale: "en-US", name: "Kai (US)", gender: "Male" },
+	{ id: "en-US-LunaNeural", locale: "en-US", name: "Luna (US)", gender: "Female" },
 	// en-GB
 	{ id: "en-GB-SoniaNeural", locale: "en-GB", name: "Sonia (UK)", gender: "Female" },
 	{ id: "en-GB-RyanNeural", locale: "en-GB", name: "Ryan (UK)", gender: "Male" },
@@ -49,6 +67,7 @@ export const AZURE_VOICES: AzureVoice[] = [
 	{ id: "en-GB-OliverNeural", locale: "en-GB", name: "Oliver (UK)", gender: "Male" },
 	{ id: "en-GB-OliviaNeural", locale: "en-GB", name: "Olivia (UK)", gender: "Female" },
 	{ id: "en-GB-ThomasNeural", locale: "en-GB", name: "Thomas (UK)", gender: "Male" },
+	{ id: "en-GB-MiaNeural", locale: "en-GB", name: "Mia (UK)", gender: "Female" },
 	// en-AU
 	{ id: "en-AU-NatashaNeural", locale: "en-AU", name: "Natasha (AU)", gender: "Female" },
 	{ id: "en-AU-WilliamNeural", locale: "en-AU", name: "William (AU)", gender: "Male" },

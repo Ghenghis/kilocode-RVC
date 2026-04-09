@@ -128,5 +128,5 @@ def _rvc_convert(input_wav: bytes, model_path: str, index_path: str, pitch_shift
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7860))
+    port = int(os.environ.get("PORT", 5050))
     uvicorn.run(app, host="0.0.0.0", port=port)

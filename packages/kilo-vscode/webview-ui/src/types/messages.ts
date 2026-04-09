@@ -1396,7 +1396,7 @@ export interface SpeechSettingsLoadedMessage {
     autoSpeak: boolean
     provider: "rvc" | "azure" | "browser"
     volume: number
-    rvc: { voiceId: string; dockerPort: number }
+    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
   }

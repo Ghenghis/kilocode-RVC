@@ -17,7 +17,7 @@ interface SpeechSettings {
   autoSpeak: boolean
   provider: SpeechProvider
   volume: number
-  rvc: { voiceId: string; dockerPort: number }
+  rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
   azure: { region: string; apiKey: string; voiceId: string }
   browser: { voiceURI: string; rate: number; pitch: number }
 }
@@ -27,7 +27,7 @@ const DEFAULT_SPEECH: SpeechSettings = {
   autoSpeak: false,
   provider: "browser",
   volume: 80,
-  rvc: { voiceId: "", dockerPort: 5050 },
+  rvc: { voiceId: "", dockerPort: 5050, edgeVoice: "en-US-AriaNeural", pitchShift: 0 },
   azure: { region: "eastus", apiKey: "", voiceId: "en-US-JennyNeural" },
   browser: { voiceURI: "", rate: 1.0, pitch: 1.0 },
 }
@@ -110,7 +110,12 @@ async function playPreview(text: string, settings: SpeechSettings): Promise<void
     const resp = await fetch(`http://localhost:${settings.rvc.dockerPort}/synthesize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice_id: settings.rvc.voiceId }),
+      body: JSON.stringify({
+        text,
+        voice_id: settings.rvc.voiceId,
+        edge_voice: settings.rvc.edgeVoice || "en-US-AriaNeural",
+        pitch_shift: settings.rvc.pitchShift || 0,
+      }),
     })
     if (!resp.ok) throw new Error(`RVC error: ${resp.status}`)
     const blob = await resp.blob()
@@ -141,7 +146,7 @@ const SpeechTab: Component = () => {
 
   const [settings, setSettings] = createSignal<SpeechSettings>({ ...DEFAULT_SPEECH })
   const [previewing, setPreviewing] = createSignal(false)
-  const [previewText, setPreviewText] = createSignal("Hello! This is a preview of the speech output.")
+  const [previewText, setPreviewText] = createSignal(language.t("settings.speech.preview.defaultText"))
   const [rvcOnline, setRvcOnline] = createSignal(false)
   const [rvcVoices, setRvcVoices] = createSignal<Array<{ id: string; sizeMB: number }>>([])
   const [rvcLoading, setRvcLoading] = createSignal(false)
@@ -443,7 +448,6 @@ const SpeechTab: Component = () => {
           <SettingsRow
             title={language.t("settings.speech.rvc.voice.title")}
             description={language.t("settings.speech.rvc.voice.description")}
-            last
           >
             <Show
               when={rvcOnline() && rvcVoices().length > 0}
@@ -485,6 +489,43 @@ const SpeechTab: Component = () => {
               />
             </Show>
           </SettingsRow>
+          <SettingsRow
+            title={language.t("settings.speech.rvc.edgeVoice.title")}
+            description={language.t("settings.speech.rvc.edgeVoice.description")}
+          >
+            <Select
+              options={AZURE_VOICES.filter((v) => v.locale === "en-US")}
+              current={AZURE_VOICES.find((v) => v.id === (settings().rvc.edgeVoice || "en-US-AriaNeural"))}
+              value={(o: AzureVoice) => o.id}
+              label={(o: AzureVoice) => `${o.name} (${o.gender})`}
+              onSelect={(o: AzureVoice | undefined) => {
+                if (o) updateNested("rvc", "edgeVoice", o.id)
+              }}
+              variant="secondary"
+              size="small"
+              triggerVariant="settings"
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={language.t("settings.speech.rvc.pitchShift.title")}
+            description={language.t("settings.speech.rvc.pitchShift.description")}
+            last
+          >
+            <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+              <input
+                type="range"
+                min="-12"
+                max="12"
+                step="1"
+                value={settings().rvc.pitchShift || 0}
+                onInput={(e) => updateNested("rvc", "pitchShift", Number(e.currentTarget.value))}
+                style={{ width: "120px" }}
+              />
+              <span style={{ "font-size": "12px", color: "var(--vscode-descriptionForeground)", "min-width": "40px" }}>
+                {(settings().rvc.pitchShift || 0) > 0 ? "+" : ""}{settings().rvc.pitchShift || 0} st
+              </span>
+            </div>
+          </SettingsRow>
         </Card>
       </Show>
 
@@ -500,7 +541,7 @@ const SpeechTab: Component = () => {
               type="password"
               value={settings().azure.apiKey}
               onInput={(e) => updateNested("azure", "apiKey", e.currentTarget.value)}
-              placeholder="Enter Azure API key"
+              placeholder={language.t("settings.speech.azure.apiKey.placeholder")}
               style={{
                 width: "220px",
                 background: "var(--vscode-input-background)",
@@ -535,10 +576,10 @@ const SpeechTab: Component = () => {
             description={language.t("settings.speech.azure.locale.description")}
           >
             <Select
-              options={[{ value: "all", label: "All Locales" }, ...AZURE_LOCALES.map((l) => ({ value: l, label: l }))]}
+              options={[{ value: "all", label: language.t("settings.speech.azure.locale.all") }, ...AZURE_LOCALES.map((l) => ({ value: l, label: l }))]}
               current={
                 azureLocale() === "all"
-                  ? { value: "all", label: "All Locales" }
+                  ? { value: "all", label: language.t("settings.speech.azure.locale.all") }
                   : { value: azureLocale(), label: azureLocale() }
               }
               value={(o) => o.value}

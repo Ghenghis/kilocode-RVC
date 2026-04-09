@@ -2185,6 +2185,8 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         rvc: {
           voiceId: speech.get<string>("rvc.voiceId", ""),
           dockerPort: speech.get<number>("rvc.dockerPort", 5050),
+          edgeVoice: speech.get<string>("rvc.edgeVoice", "en-US-AriaNeural"),
+          pitchShift: speech.get<number>("rvc.pitchShift", 0),
         },
         azure: {
           region: speech.get<string>("azure.region", "eastus"),

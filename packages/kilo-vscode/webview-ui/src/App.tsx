@@ -111,7 +111,7 @@ export const DataBridge: Component<{ children: any }> = (props) => {
     autoSpeak: boolean
     provider: "rvc" | "azure" | "browser"
     volume: number
-    rvc: { voiceId: string; dockerPort: number }
+    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
   } | null>(null)
@@ -190,7 +190,12 @@ export const DataBridge: Component<{ children: any }> = (props) => {
           fetch(`http://localhost:${ss.rvc.dockerPort}/synthesize`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: textContent.slice(0, 2000), voice_id: ss.rvc.voiceId }),
+            body: JSON.stringify({
+              text: textContent.slice(0, 2000),
+              voice_id: ss.rvc.voiceId,
+              edge_voice: ss.rvc.edgeVoice || "en-US-AriaNeural",
+              pitch_shift: ss.rvc.pitchShift || 0,
+            }),
           })
             .then((r) => r.blob())
             .then((blob) => {

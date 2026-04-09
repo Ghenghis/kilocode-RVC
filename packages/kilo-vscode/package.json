@@ -759,6 +759,18 @@
           "default": 5050,
           "description": "Port for the RVC Docker container."
         },
+        "kilo-code.new.speech.rvc.edgeVoice": {
+          "type": "string",
+          "default": "en-US-AriaNeural",
+          "description": "Azure Neural voice used as TTS baseline before RVC voice conversion."
+        },
+        "kilo-code.new.speech.rvc.pitchShift": {
+          "type": "number",
+          "default": 0,
+          "minimum": -12,
+          "maximum": 12,
+          "description": "Pitch shift in semitones during RVC voice conversion (-12 to +12)."
+        },
         "kilo-code.new.speech.azure.region": {
           "type": "string",
           "default": "eastus",
