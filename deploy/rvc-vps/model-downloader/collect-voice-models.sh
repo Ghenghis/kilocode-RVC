@@ -606,6 +606,258 @@ log "=== Section 17: Japanese RVC Voices (sample) ==="
 download_hf_dir "Elesis/RVC_Models" "." "rvc-voices-jp/elesis" "*.pth"
 
 # =====================================================================
+# SECTION 18: Cartoon / Animated Character Voices
+# Popular cartoon characters — high demand for fun voice covers
+# =====================================================================
+log ""
+log "=== Section 18: Cartoon Character Voices ==="
+
+# SpongeBob SquarePants
+download_file "https://huggingface.co/sail-rvc/SpongeBob_SquarePants__RVC_v2_/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/spongebob/model.pth" "SpongeBob SquarePants (RVC v2)"
+
+# Patrick Star
+download_file "https://huggingface.co/kellermp4/RVC-Models/resolve/main/Patrick%20Star%20(SpongeBob)%20-%20Weights.gg%20Model.zip" \
+    "$TARGET_DIR/rvc-voices/patrick-star/patrick-star.zip" "Patrick Star (SpongeBob)"
+[[ -f "$TARGET_DIR/rvc-voices/patrick-star/patrick-star.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/patrick-star" && unzip -o -j patrick-star.zip '*.pth' 2>/dev/null; rm -f patrick-star.zip) || true
+
+# Squidward
+download_file "https://huggingface.co/lepifort/squidwardRVC/resolve/main/squidward.zip" \
+    "$TARGET_DIR/rvc-voices/squidward/squidward.zip" "Squidward Tentacles"
+[[ -f "$TARGET_DIR/rvc-voices/squidward/squidward.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/squidward" && unzip -o -j squidward.zip '*.pth' 2>/dev/null; rm -f squidward.zip) || true
+
+# Homer Simpson
+download_file "https://huggingface.co/YourLocalWorm/Simpsonsmodels/resolve/main/HomerSimpsonRGANV1_435e_15225s.zip" \
+    "$TARGET_DIR/rvc-voices/homer-simpson/homer-simpson.zip" "Homer Simpson (435 epochs)"
+[[ -f "$TARGET_DIR/rvc-voices/homer-simpson/homer-simpson.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/homer-simpson" && unzip -o -j homer-simpson.zip '*.pth' 2>/dev/null; rm -f homer-simpson.zip) || true
+
+# Peter Griffin
+download_file "https://huggingface.co/AIMan2001/PeterGriffin/resolve/main/Peter%20Griffin.zip" \
+    "$TARGET_DIR/rvc-voices/peter-griffin/peter-griffin.zip" "Peter Griffin (375 epochs)"
+[[ -f "$TARGET_DIR/rvc-voices/peter-griffin/peter-griffin.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/peter-griffin" && unzip -o -j peter-griffin.zip '*.pth' 2>/dev/null; rm -f peter-griffin.zip) || true
+
+# Stewie Griffin
+download_file "https://huggingface.co/iatop65/RVC_Voices/resolve/main/Stewie_Griffin.zip" \
+    "$TARGET_DIR/rvc-voices/stewie-griffin/stewie-griffin.zip" "Stewie Griffin (210 epochs)"
+[[ -f "$TARGET_DIR/rvc-voices/stewie-griffin/stewie-griffin.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/stewie-griffin" && unzip -o -j stewie-griffin.zip '*.pth' 2>/dev/null; rm -f stewie-griffin.zip) || true
+
+# Eric Cartman
+download_file "https://huggingface.co/youmebangbang/rvc_models/resolve/main/cartman.pth" \
+    "$TARGET_DIR/rvc-voices/eric-cartman/model.pth" "Eric Cartman (South Park)"
+
+# Rick Sanchez
+download_file "https://huggingface.co/brookieisthatyou/MY-RVC-V2-MODELS/resolve/main/RickSanchez.zip" \
+    "$TARGET_DIR/rvc-voices/rick-sanchez/rick-sanchez.zip" "Rick Sanchez (Rick & Morty)"
+[[ -f "$TARGET_DIR/rvc-voices/rick-sanchez/rick-sanchez.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/rick-sanchez" && unzip -o -j rick-sanchez.zip '*.pth' 2>/dev/null; rm -f rick-sanchez.zip) || true
+
+# Optimus Prime
+download_file "https://huggingface.co/sail-rvc/Optimus_Prime/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/optimus-prime/model.pth" "Optimus Prime (Transformers)"
+
+# =====================================================================
+# SECTION 19: Villain & Dark Character Voices
+# =====================================================================
+log ""
+log "=== Section 19: Villain / Dark Character Voices ==="
+
+# Darth Vader
+download_file "https://huggingface.co/sail-rvc/Darth_Vader/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/darth-vader/model.pth" "Darth Vader"
+
+# The Joker (Heath Ledger)
+download_file "https://huggingface.co/sail-rvc/Heath_Ledger_Joker/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/joker-heath-ledger/model.pth" "Joker (Heath Ledger)"
+
+# =====================================================================
+# SECTION 20: Narrator & Audiobook Voices
+# Deep, authoritative narration voices
+# =====================================================================
+log ""
+log "=== Section 20: Narrator / Audiobook Voices ==="
+
+# Morgan Freeman
+download_file "https://huggingface.co/CxronaBxndit/Morgan-Freeman/resolve/main/Morgan-Freeman.zip" \
+    "$TARGET_DIR/rvc-voices/morgan-freeman/morgan-freeman.zip" "Morgan Freeman"
+[[ -f "$TARGET_DIR/rvc-voices/morgan-freeman/morgan-freeman.zip" ]] && \
+    (cd "$TARGET_DIR/rvc-voices/morgan-freeman" && unzip -o -j morgan-freeman.zip '*.pth' 2>/dev/null; rm -f morgan-freeman.zip) || true
+
+# David Attenborough
+download_file "https://huggingface.co/youmebangbang/rvc_models/resolve/main/attenborough.pth" \
+    "$TARGET_DIR/rvc-voices/david-attenborough/model.pth" "David Attenborough"
+
+# Disco Elysium Narrator
+download_file "https://huggingface.co/Its7up/Disco-Elysium-Narrator-RVC-v2/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/disco-elysium-narrator/model.pth" "Disco Elysium Narrator (Lenval Brown)"
+
+# =====================================================================
+# SECTION 21: Gaming Character Voices
+# =====================================================================
+log ""
+log "=== Section 21: Gaming Character Voices ==="
+
+# GLaDOS (Portal) — GPT-SoVITS format, large model
+download_file "https://huggingface.co/WarriorMama777/GLaDOS_TTS/resolve/main/GLaDOS_e30_s930.pth" \
+    "$TARGET_DIR/rvc-voices/glados/model.pth" "GLaDOS (Portal)"
+
+# Sonic the Hedgehog
+download_file "https://huggingface.co/sail-rvc/Sonic_the_Hedgehog/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/sonic/model.pth" "Sonic the Hedgehog"
+
+# Mario
+download_file "https://huggingface.co/sail-rvc/Mario/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/mario/model.pth" "Mario (Nintendo)"
+
+# =====================================================================
+# SECTION 22: British, Scottish, Irish Accent Voices
+# =====================================================================
+log ""
+log "=== Section 22: Accent Voices ==="
+
+# Stern British Voice (sail-rvc)
+download_file "https://huggingface.co/sail-rvc/British_Male/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/british-male/model.pth" "British Male Voice"
+
+# British Female
+download_file "https://huggingface.co/sail-rvc/British_Female/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/british-female/model.pth" "British Female Voice"
+
+# =====================================================================
+# SECTION 23: ASMR / Calm / Meditation Voices
+# =====================================================================
+log ""
+log "=== Section 23: ASMR / Calm Voices ==="
+
+# Nanou ASMR
+download_file "https://huggingface.co/superwelp/Nanou-RVC-ASMR/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/nanou-asmr/model.pth" "Nanou ASMR"
+
+# SpliceGirl (ASMR + Singing)
+download_file "https://huggingface.co/MarcusUniverse/SpliceGirl_RVC/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/splicegirl/model.pth" "SpliceGirl (ASMR + Singing)"
+
+# =====================================================================
+# SECTION 24: Indian English Accent
+# =====================================================================
+log ""
+log "=== Section 24: Indian English Voices ==="
+
+download_file "https://huggingface.co/pranjalsoni/indian-female-voice-rvc/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/indian-female/model.pth" "Indian Female Voice"
+
+# =====================================================================
+# SECTION 25: TikTok / Meme Voices
+# =====================================================================
+log ""
+log "=== Section 25: TikTok / Meme Voices ==="
+
+download_file "https://huggingface.co/sail-rvc/TikTok_TTS_Female/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/tiktok-female/model.pth" "TikTok TTS Female"
+
+download_file "https://huggingface.co/sail-rvc/TikTok_TTS_Male/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/tiktok-male/model.pth" "TikTok TTS Male"
+
+# =====================================================================
+# SECTION 26: Massive sail-rvc Collection (~55MB each)
+# Auto-converted collection — broad voice variety
+# =====================================================================
+log ""
+log "=== Section 26: sail-rvc Curated Picks (diverse voices) ==="
+
+# Female variety
+download_file "https://huggingface.co/sail-rvc/Taylor_Swift/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/taylor-swift/model.pth" "Taylor Swift"
+
+download_file "https://huggingface.co/sail-rvc/Adele/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/adele/model.pth" "Adele"
+
+download_file "https://huggingface.co/sail-rvc/Billie_Eilish/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/billie-eilish/model.pth" "Billie Eilish"
+
+download_file "https://huggingface.co/sail-rvc/Lana_Del_Rey/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/lana-del-rey/model.pth" "Lana Del Rey"
+
+download_file "https://huggingface.co/sail-rvc/Rihanna/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/rihanna/model.pth" "Rihanna"
+
+# Male variety
+download_file "https://huggingface.co/sail-rvc/Frank_Sinatra/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/frank-sinatra/model.pth" "Frank Sinatra"
+
+download_file "https://huggingface.co/sail-rvc/Freddie_Mercury/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/freddie-mercury/model.pth" "Freddie Mercury"
+
+download_file "https://huggingface.co/sail-rvc/Michael_Jackson/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/michael-jackson/model.pth" "Michael Jackson"
+
+download_file "https://huggingface.co/sail-rvc/Ed_Sheeran/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/ed-sheeran/model.pth" "Ed Sheeran"
+
+download_file "https://huggingface.co/sail-rvc/The_Weeknd/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/the-weeknd/model.pth" "The Weeknd"
+
+download_file "https://huggingface.co/sail-rvc/Drake/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/drake/model.pth" "Drake"
+
+download_file "https://huggingface.co/sail-rvc/Eminem/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/eminem/model.pth" "Eminem"
+
+download_file "https://huggingface.co/sail-rvc/Post_Malone/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/post-malone/model.pth" "Post Malone"
+
+# Deep male voices
+download_file "https://huggingface.co/sail-rvc/James_Earl_Jones/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/james-earl-jones/model.pth" "James Earl Jones"
+
+download_file "https://huggingface.co/sail-rvc/Samuel_L_Jackson/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/samuel-l-jackson/model.pth" "Samuel L. Jackson"
+
+download_file "https://huggingface.co/sail-rvc/Snoop_Dogg/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/snoop-dogg/model.pth" "Snoop Dogg"
+
+# Character / unique voices
+download_file "https://huggingface.co/sail-rvc/Gollum/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/gollum/model.pth" "Gollum (Lord of the Rings)"
+
+download_file "https://huggingface.co/sail-rvc/Kermit_the_Frog/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/kermit/model.pth" "Kermit the Frog"
+
+download_file "https://huggingface.co/sail-rvc/Scooby_Doo/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/scooby-doo/model.pth" "Scooby-Doo"
+
+download_file "https://huggingface.co/sail-rvc/Donald_Duck/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/donald-duck/model.pth" "Donald Duck"
+
+download_file "https://huggingface.co/sail-rvc/Yoda/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/yoda/model.pth" "Yoda (Star Wars)"
+
+download_file "https://huggingface.co/sail-rvc/Elmo/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/elmo/model.pth" "Elmo (Sesame Street)"
+
+download_file "https://huggingface.co/sail-rvc/Bender/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/bender/model.pth" "Bender (Futurama)"
+
+download_file "https://huggingface.co/sail-rvc/Mickey_Mouse/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/mickey-mouse/model.pth" "Mickey Mouse"
+
+download_file "https://huggingface.co/sail-rvc/Shrek/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/shrek/model.pth" "Shrek"
+
+download_file "https://huggingface.co/sail-rvc/Pikachu/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/pikachu/model.pth" "Pikachu"
+
+download_file "https://huggingface.co/sail-rvc/Bugs_Bunny/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/bugs-bunny/model.pth" "Bugs Bunny"
+
+download_file "https://huggingface.co/sail-rvc/Stitch/resolve/main/model.pth" \
+    "$TARGET_DIR/rvc-voices/stitch/model.pth" "Stitch (Lilo & Stitch)"
+
+# =====================================================================
 # Final Summary
 # =====================================================================
 log ""
