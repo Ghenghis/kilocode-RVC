@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  edge-tts-server:
+    build:
+      context: ./edge-tts-server
+      dockerfile: Dockerfile
+    container_name: edge-tts-server
+    restart: always
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./models:/models
+    environment:
+      - MODELS_DIR=/models
+      - PORT=5050
+    networks:
+      - rvc-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  model-server:
+    image: nginx:1.25-alpine
+    container_name: model-server
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/usr/share/nginx/html/models:ro
+      - ./model-server-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - rvc-net
+
+networks:
+  rvc-net:
+    driver: bridge

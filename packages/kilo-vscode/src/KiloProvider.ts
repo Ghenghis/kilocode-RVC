@@ -832,6 +832,37 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         case "requestSpeechSettings":
           this.sendSpeechSettings()
           break
+        case "downloadRvcModel": {
+          const { url, name } = message as { url: string; name: string; type: string }
+          const config = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const port = config.get<number>("rvc.dockerPort", 5050)
+          // Download the model into the local Docker container's /models volume
+          // by fetching from the remote model server and piping to the container
+          try {
+            const resp = await fetch(url)
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const buffer = Buffer.from(await resp.arrayBuffer())
+            const fs = await import("fs")
+            const path = await import("path")
+            const os = await import("os")
+            const tmpFile = path.join(os.tmpdir(), `${name}.pth`)
+            fs.writeFileSync(tmpFile, buffer)
+            // Copy to Docker volume via docker cp
+            const { exec } = await import("child_process")
+            exec(`docker cp "${tmpFile}" edge-tts-server:/models/${name}.pth`, (err) => {
+              if (err) {
+                console.error("[Kilo New] Failed to copy model to Docker:", err)
+              } else {
+                console.log(`[Kilo New] Model ${name}.pth installed to Docker container`)
+                // Clean up temp file
+                try { fs.unlinkSync(tmpFile) } catch {}
+              }
+            })
+          } catch (e) {
+            console.error("[Kilo New] RVC model download failed:", e)
+          }
+          break
+        }
         case "requestTimelineSetting":
           this.sendTimelineSetting()
           break
@@ -2187,6 +2218,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           dockerPort: speech.get<number>("rvc.dockerPort", 5050),
           edgeVoice: speech.get<string>("rvc.edgeVoice", "en-US-AriaNeural"),
           pitchShift: speech.get<number>("rvc.pitchShift", 0),
+          modelServerUrl: speech.get<string>("rvc.modelServerUrl", "https://voice.daveai.tech"),
         },
         azure: {
           region: speech.get<string>("azure.region", "eastus"),

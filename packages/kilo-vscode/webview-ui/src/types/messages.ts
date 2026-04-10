@@ -1829,6 +1829,12 @@ export interface RequestSpeechSettingsMessage {
   type: "requestSpeechSettings"
 }
 
+export interface DownloadRvcModelMessage {
+  type: "downloadRvcModel"
+  url: string
+  name: string
+}
+
 export interface ResetAllSettingsRequest {
   type: "resetAllSettings"
 }
@@ -2338,6 +2344,7 @@ export type WebviewMessage =
   | UpdateConfigMessage
   | RequestNotificationSettingsMessage
   | RequestSpeechSettingsMessage
+  | DownloadRvcModelMessage
   | ResetAllSettingsRequest
   | SettingsTabChangedMessage
   | SyncSessionRequest

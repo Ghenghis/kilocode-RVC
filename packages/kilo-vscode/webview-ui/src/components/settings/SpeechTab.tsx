@@ -17,7 +17,7 @@ interface SpeechSettings {
   autoSpeak: boolean
   provider: SpeechProvider
   volume: number
-  rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
+  rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number; modelServerUrl: string }
   azure: { region: string; apiKey: string; voiceId: string }
   browser: { voiceURI: string; rate: number; pitch: number }
 }
@@ -27,7 +27,7 @@ const DEFAULT_SPEECH: SpeechSettings = {
   autoSpeak: false,
   provider: "browser",
   volume: 80,
-  rvc: { voiceId: "", dockerPort: 5050, edgeVoice: "en-US-AriaNeural", pitchShift: 0 },
+  rvc: { voiceId: "", dockerPort: 5050, edgeVoice: "en-US-AriaNeural", pitchShift: 0, modelServerUrl: "https://voice.daveai.tech" },
   azure: { region: "eastus", apiKey: "", voiceId: "en-US-JennyNeural" },
   browser: { voiceURI: "", rate: 1.0, pitch: 1.0 },
 }
@@ -153,6 +153,13 @@ const SpeechTab: Component = () => {
   const [browserVoices, setBrowserVoices] = createSignal<SpeechSynthesisVoice[]>([])
   const [azureLocale, setAzureLocale] = createSignal("all")
 
+  // RVC Model Browser state
+  type ModelStatus = "available" | "downloading" | "installed"
+  interface RemoteModel { name: string; size: number; url: string; status: ModelStatus }
+  const [remoteModels, setRemoteModels] = createSignal<RemoteModel[]>([])
+  const [remoteModelsLoading, setRemoteModelsLoading] = createSignal(false)
+  const [remoteModelsError, setRemoteModelsError] = createSignal("")
+
   // Load browser voices
   onMount(() => {
     const loadVoices = () => {
@@ -203,6 +210,52 @@ const SpeechTab: Component = () => {
       void refreshRvc()
     }
   })
+
+  // Fetch remote models from the model server
+  const fetchRemoteModels = async () => {
+    const serverUrl = settings().rvc.modelServerUrl || "https://voice.daveai.tech"
+    setRemoteModelsLoading(true)
+    setRemoteModelsError("")
+    try {
+      const resp = await fetch(`${serverUrl.replace(/\/+$/, "")}/models`)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const data: Array<{ name: string; size: number; url: string }> = await resp.json()
+      // Cross-reference with local voices to mark installed ones
+      const localIds = new Set(rvcVoices().map((v) => v.id))
+      setRemoteModels(
+        data.map((m) => ({
+          ...m,
+          status: localIds.has(m.name.replace(/\.pth$/, "")) ? "installed" as ModelStatus : "available" as ModelStatus,
+        })),
+      )
+    } catch {
+      setRemoteModelsError(language.t("settings.speech.rvc.modelBrowser.fetchError"))
+      setRemoteModels([])
+    } finally {
+      setRemoteModelsLoading(false)
+    }
+  }
+
+  // Fetch remote models when provider is rvc and on modelServerUrl change
+  createEffect(() => {
+    const s = settings()
+    if (s.provider === "rvc" && s.rvc.modelServerUrl) {
+      void fetchRemoteModels()
+    }
+  })
+
+  const handleDownloadModel = (model: RemoteModel) => {
+    // Update status to downloading
+    setRemoteModels((prev) =>
+      prev.map((m) => (m.name === model.name ? { ...m, status: "downloading" as ModelStatus } : m)),
+    )
+    // Send download request to extension backend
+    vscode.postMessage({
+      type: "downloadRvcModel",
+      url: model.url,
+      name: model.name,
+    })
+  }
 
   const save = (key: string, value: unknown) => {
     vscode.postMessage({ type: "updateSetting", key: `speech.${key}`, value })
@@ -526,6 +579,184 @@ const SpeechTab: Component = () => {
               </span>
             </div>
           </SettingsRow>
+        </Card>
+
+        {/* RVC Model Browser */}
+        <h4 style={{ "margin-top": "8px", "margin-bottom": "8px" }}>{language.t("settings.speech.rvc.modelBrowser.title")}</h4>
+        <Card>
+          <SettingsRow
+            title={language.t("settings.speech.rvc.modelBrowser.serverUrl.title")}
+            description={language.t("settings.speech.rvc.modelBrowser.serverUrl.description")}
+          >
+            <input
+              type="text"
+              value={settings().rvc.modelServerUrl || "https://voice.daveai.tech"}
+              onInput={(e) => updateNested("rvc", "modelServerUrl", e.currentTarget.value)}
+              placeholder={language.t("settings.speech.rvc.modelBrowser.serverUrl.placeholder")}
+              style={{
+                width: "260px",
+                background: "var(--vscode-input-background)",
+                color: "var(--vscode-input-foreground)",
+                border: "1px solid var(--vscode-input-border)",
+                "border-radius": "4px",
+                padding: "4px 8px",
+              }}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={language.t("settings.speech.rvc.modelBrowser.available.title")}
+            description={language.t("settings.speech.rvc.modelBrowser.available.description")}
+            last
+          >
+            <div style={{ display: "flex", "flex-direction": "column", gap: "8px", width: "100%" }}>
+              <div style={{ display: "flex", "align-items": "center", gap: "8px", "margin-bottom": "4px" }}>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  onClick={() => void fetchRemoteModels()}
+                  disabled={remoteModelsLoading()}
+                >
+                  {remoteModelsLoading()
+                    ? language.t("settings.speech.rvc.modelBrowser.refreshing")
+                    : language.t("settings.speech.rvc.modelBrowser.refresh")}
+                </Button>
+              </div>
+              <Show when={remoteModelsError()}>
+                <span style={{ "font-size": "11px", color: "var(--vscode-testing-iconFailed)" }}>
+                  {remoteModelsError()}
+                </span>
+              </Show>
+              <Show when={!remoteModelsLoading() && !remoteModelsError() && remoteModels().length === 0}>
+                <span style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)" }}>
+                  {language.t("settings.speech.rvc.modelBrowser.noModels")}
+                </span>
+              </Show>
+              <Show when={remoteModels().length > 0}>
+                <div
+                  style={{
+                    "max-height": "240px",
+                    "overflow-y": "auto",
+                    border: "1px solid var(--vscode-panel-border)",
+                    "border-radius": "4px",
+                  }}
+                >
+                  <For each={remoteModels()}>
+                    {(model) => (
+                      <div
+                        style={{
+                          display: "flex",
+                          "align-items": "center",
+                          "justify-content": "space-between",
+                          padding: "8px 12px",
+                          "border-bottom": "1px solid var(--vscode-panel-border)",
+                          background: "var(--vscode-editor-background)",
+                        }}
+                      >
+                        <div style={{ display: "flex", "flex-direction": "column", gap: "2px" }}>
+                          <span style={{ "font-size": "12px", color: "var(--vscode-foreground)" }}>
+                            {formatRvcName(model.name.replace(/\.pth$/, ""))}
+                          </span>
+                          <span style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)" }}>
+                            {language.t("settings.speech.rvc.modelBrowser.fileSize")}: {(model.size / (1024 * 1024)).toFixed(1)} MB
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+                          <Show when={model.status === "installed"}>
+                            <span
+                              style={{
+                                "font-size": "11px",
+                                color: "var(--vscode-testing-iconPassed)",
+                                "font-weight": "600",
+                              }}
+                            >
+                              {language.t("settings.speech.rvc.modelBrowser.installed")}
+                            </span>
+                          </Show>
+                          <Show when={model.status === "downloading"}>
+                            <span
+                              style={{
+                                "font-size": "11px",
+                                color: "var(--vscode-charts-yellow)",
+                                "font-weight": "600",
+                              }}
+                            >
+                              {language.t("settings.speech.rvc.modelBrowser.downloading")}
+                            </span>
+                          </Show>
+                          <Show when={model.status === "available"}>
+                            <Button
+                              variant="secondary"
+                              size="small"
+                              onClick={() => handleDownloadModel(model)}
+                            >
+                              {language.t("settings.speech.rvc.modelBrowser.download")}
+                            </Button>
+                          </Show>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </SettingsRow>
+        </Card>
+
+        {/* Local Models */}
+        <h4 style={{ "margin-top": "8px", "margin-bottom": "8px" }}>{language.t("settings.speech.rvc.modelBrowser.localModels.title")}</h4>
+        <Card>
+          <div style={{ padding: "12px" }}>
+            <p
+              style={{
+                "font-size": "12px",
+                color: "var(--vscode-descriptionForeground)",
+                margin: "0 0 8px 0",
+              }}
+            >
+              {language.t("settings.speech.rvc.modelBrowser.localModels.description")}
+            </p>
+            <Show
+              when={rvcOnline() && rvcVoices().length > 0}
+              fallback={
+                <span style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)" }}>
+                  {rvcOnline()
+                    ? language.t("settings.speech.rvc.modelBrowser.localModels.none")
+                    : language.t("settings.speech.rvc.voice.startDocker")}
+                </span>
+              }
+            >
+              <div
+                style={{
+                  "max-height": "200px",
+                  "overflow-y": "auto",
+                  border: "1px solid var(--vscode-panel-border)",
+                  "border-radius": "4px",
+                }}
+              >
+                <For each={rvcVoices()}>
+                  {(voice) => (
+                    <div
+                      style={{
+                        display: "flex",
+                        "align-items": "center",
+                        "justify-content": "space-between",
+                        padding: "8px 12px",
+                        "border-bottom": "1px solid var(--vscode-panel-border)",
+                        background: "var(--vscode-editor-background)",
+                      }}
+                    >
+                      <span style={{ "font-size": "12px", color: "var(--vscode-foreground)" }}>
+                        {formatRvcName(voice.id)}
+                      </span>
+                      <span style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)" }}>
+                        {voice.sizeMB} MB
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
         </Card>
       </Show>
 
