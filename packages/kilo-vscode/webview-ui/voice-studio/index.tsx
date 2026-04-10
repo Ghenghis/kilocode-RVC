@@ -1,27 +1,14 @@
 import { render } from "solid-js/web"
+import { App } from "./App"
+import "./voice-studio.css"
 
-function App() {
-	const vscode = (window as any).acquireVsCodeApi?.()
-
-	// Request initial state on mount
-	if (vscode) {
-		vscode.postMessage({ type: "requestVoiceStudioState" })
-	}
-
-	return (
-		<div
-			style={{
-				padding: "20px",
-				color: "var(--vscode-foreground)",
-				"font-family": "var(--vscode-font-family)",
-			}}>
-			<h1 style={{ "font-size": "24px", "font-weight": "600", "margin-bottom": "16px" }}>Voice Studio</h1>
-			<p style={{ color: "var(--vscode-descriptionForeground)" }}>Loading...</p>
-		</div>
-	)
+const vscode = (window as any).acquireVsCodeApi?.() ?? {
+  postMessage: (msg: unknown) => console.log("[VoiceStudio] Mock postMessage:", msg),
+  getState: () => undefined,
+  setState: () => {},
 }
 
 const root = document.getElementById("root")
 if (root) {
-	render(() => <App />, root)
+  render(() => <App vscode={vscode} />, root)
 }
