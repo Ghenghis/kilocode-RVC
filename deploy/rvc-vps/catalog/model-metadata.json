@@ -1,0 +1,268 @@
+{
+  "_comment": "Hand-curated metadata overrides for RVC/TTS voice models. Keys match directory names under /opt/rvc-models/models/ on the VPS. These overrides are merged on top of auto-detected defaults by build-catalog.py when generating the public catalog.json.",
+
+  "rvc-voices/lunar-studio": {
+    "name": "Lunar Studio",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 5,
+    "sampleRate": 48000,
+    "tags": ["warm", "studio", "hifi", "assistant"],
+    "description": "High-fidelity female studio voice with warm, natural tone ideal for assistant use."
+  },
+  "rvc-voices/ntts-ai": {
+    "name": "NTTS AI",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 40000,
+    "tags": ["neural", "tts", "clean"],
+    "description": "Clean neural TTS voice with balanced, neutral delivery."
+  },
+  "rvc-voices/google-assistant": {
+    "name": "Google Assistant",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["assistant", "modern", "familiar"],
+    "description": "Familiar modern assistant voice with clear, approachable delivery."
+  },
+  "rvc-voices/google-gemini": {
+    "name": "Google Gemini",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["ai", "modern", "assistant"],
+    "description": "Modern AI assistant voice with clean, contemporary tone."
+  },
+  "rvc-voices/noaa-radio": {
+    "name": "NOAA Radio",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "broadcast",
+    "quality": 3,
+    "sampleRate": 22050,
+    "tags": ["broadcast", "clear", "robotic"],
+    "description": "Broadcast-style weather radio voice with measured, robotic cadence."
+  },
+  "rvc-voices/dectalk": {
+    "name": "DECTalk",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "broadcast",
+    "quality": 2,
+    "sampleRate": 16000,
+    "tags": ["robotic", "retro", "synth", "classic"],
+    "description": "Classic retro synthesized voice reminiscent of early text-to-speech systems."
+  },
+  "rvc-voices/liberty-prime": {
+    "name": "Liberty Prime",
+    "gender": "male",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "character",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["character", "deep", "robotic", "game"],
+    "description": "Deep, commanding robotic character voice inspired by Fallout's Liberty Prime."
+  },
+  "rvc-voices/ami-mizuno": {
+    "name": "Ami Mizuno",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["anime", "clear", "crisp"],
+    "description": "Clear, crisp female anime voice with gentle and intelligent tone."
+  },
+  "rvc-voices/makoto-kino": {
+    "name": "Makoto Kino",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "expressive",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["anime", "energetic", "bright"],
+    "description": "Energetic, bright female anime voice with expressive delivery."
+  },
+  "rvc-voices/ariana-grande-2010s": {
+    "name": "Ariana Grande (2010s)",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "singing",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["pop", "expressive", "singing"],
+    "description": "Expressive female pop singing voice modeled after 2010s-era vocals."
+  },
+  "rvc-voices/kanye-west": {
+    "name": "Kanye West",
+    "gender": "male",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "expressive",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["rap", "deep", "expressive"],
+    "description": "Deep, expressive male voice with bold, assertive delivery."
+  },
+  "rvc-voices/elvis-presley": {
+    "name": "Elvis Presley",
+    "gender": "male",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "singing",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["classic", "crooner", "deep", "warm"],
+    "description": "Warm, deep classic crooner voice with rich baritone character."
+  },
+  "rvc-voices/asuka-kazama": {
+    "name": "Asuka Kazama",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "character",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["game", "action", "strong"],
+    "description": "Strong, action-oriented female game character voice."
+  },
+  "rvc-voices/fern-bfdie": {
+    "name": "Fern (BFDI/E)",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "character",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["animated", "clean"],
+    "description": "Clean, neutral animated character voice from Battle for Dream Island."
+  },
+  "rvc-voices/rose-bfdie": {
+    "name": "Rose (BFDI/E)",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "character",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["animated", "gentle"],
+    "description": "Gentle, soft female animated character voice from Battle for Dream Island."
+  },
+  "rvc-voices/katseye-manon": {
+    "name": "KATSEYE Manon",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["pop", "modern", "clear"],
+    "description": "Clear, modern female pop voice with natural, polished delivery."
+  },
+  "rvc-voices/katseye-daniela": {
+    "name": "KATSEYE Daniela",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["pop", "bilingual", "clear"],
+    "description": "Clear female pop voice with bilingual versatility."
+  },
+  "rvc-voices/phoenixstorm-default": {
+    "name": "PhoenixStorm Default",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["default", "generic", "test"],
+    "description": "Generic default voice useful for testing and baseline comparisons."
+  },
+  "rvc-voices/female-whisper-tts": {
+    "name": "Female Whisper TTS",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "whisper",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["whisper", "soft", "asmr", "gentle"],
+    "description": "Soft, whispery female voice ideal for ASMR and gentle narration."
+  },
+  "rvc-voices/blazblue-noel-english": {
+    "name": "BlazBlue Noel (English)",
+    "gender": "female",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "character",
+    "quality": 3,
+    "sampleRate": 24000,
+    "tags": ["game", "anime", "gentle"],
+    "description": "Gentle female game character voice from BlazBlue's English dub."
+  },
+  "kokoro/kokoro-v1.0": {
+    "name": "Kokoro v1.0",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 5,
+    "sampleRate": 24000,
+    "tags": ["tts", "natural", "multilingual"],
+    "description": "High-quality natural TTS engine with multilingual support."
+  },
+  "xtts-v2/model": {
+    "name": "XTTS v2",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 5,
+    "sampleRate": 24000,
+    "tags": ["cloning", "multilingual", "expressive"],
+    "description": "Top-tier voice cloning model with multilingual and expressive capabilities."
+  },
+  "f5-tts/model_1250000": {
+    "name": "F5-TTS",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "natural",
+    "quality": 4,
+    "sampleRate": 24000,
+    "tags": ["fast", "cloning", "natural"],
+    "description": "Fast voice cloning model with natural-sounding output."
+  },
+  "styletts2/epochs_2nd_00020": {
+    "name": "StyleTTS 2",
+    "gender": "neutral",
+    "accent": "en-US",
+    "accentLabel": "American English",
+    "style": "expressive",
+    "quality": 5,
+    "sampleRate": 24000,
+    "tags": ["expressive", "style", "prosody"],
+    "description": "Expressive TTS model with fine-grained style and prosody control."
+  }
+}
