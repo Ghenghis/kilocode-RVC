@@ -16,6 +16,7 @@ import { TelemetryProxy } from "./services/telemetry"
 import { registerCommitMessageService } from "./services/commit-message"
 import { registerCodeActions, registerTerminalActions, KiloCodeActionProvider } from "./services/code-actions"
 import { registerToggleAutoApprove } from "./commands/toggle-auto-approve"
+import { VoiceStudioProvider } from "./VoiceStudioProvider"
 
 // Activated via "onStartupFinished" (package.json) so that commands, code actions, keybindings,
 // autocomplete, commit-message generation, and URI deep links all work immediately — without
@@ -282,6 +283,65 @@ export function activate(context: vscode.ExtensionContext) {
         agentManagerProvider.postMessage({ type: "action", action: `jumpTo${i + 1}` })
       }),
     ),
+  )
+
+  // Open Voice Studio panel
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.openVoiceStudio", () => {
+      VoiceStudioProvider.openPanel(context, context.extensionUri)
+    }),
+  )
+
+  // Quick voice switch via command palette
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.switchVoice", async () => {
+      const favorites = context.globalState.get<string[]>("kilocode.voiceFavorites", [])
+      const history = context.globalState.get<{ id: string; timestamp: number }[]>("kilocode.voiceHistory", [])
+
+      const items: vscode.QuickPickItem[] = []
+
+      if (favorites.length > 0) {
+        items.push({ label: "Favorites", kind: vscode.QuickPickItemKind.Separator })
+        for (const fav of favorites) {
+          const [provider, ...rest] = fav.split(":")
+          items.push({ label: `⭐ ${rest.join(":")}`, description: provider, detail: fav })
+        }
+      }
+
+      if (history.length > 0) {
+        items.push({ label: "Recent", kind: vscode.QuickPickItemKind.Separator })
+        for (const h of history.slice(0, 10)) {
+          if (!favorites.includes(h.id)) {
+            const [provider, ...rest] = h.id.split(":")
+            items.push({ label: rest.join(":"), description: provider, detail: h.id })
+          }
+        }
+      }
+
+      items.push({ label: "Open Voice Studio...", description: "Browse all voices", detail: "__open_studio__" })
+
+      const selected = await vscode.window.showQuickPick(items, { placeHolder: "Switch voice..." })
+      if (selected) {
+        if (selected.detail === "__open_studio__") {
+          vscode.commands.executeCommand("kilo-code.new.openVoiceStudio")
+        } else if (selected.detail) {
+          const [provider, ...nameParts] = selected.detail.split(":")
+          const name = nameParts.join(":")
+          const config = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          await config.update("provider", provider, vscode.ConfigurationTarget.Global)
+
+          if (provider === "rvc") {
+            await config.update("rvc.voiceId", name, vscode.ConfigurationTarget.Global)
+          } else if (provider === "azure") {
+            await config.update("azure.voiceId", name, vscode.ConfigurationTarget.Global)
+          } else if (provider === "browser") {
+            await config.update("browser.voiceURI", name, vscode.ConfigurationTarget.Global)
+          }
+
+          vscode.window.showInformationMessage(`Voice switched to: ${name}`)
+        }
+      }
+    }),
   )
 
   // Register URI handler for session imports (vscode://kilocode.kilo-code/kilocode/s/{sessionId})

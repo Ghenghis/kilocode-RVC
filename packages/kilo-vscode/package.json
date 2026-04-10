@@ -309,6 +309,16 @@
         "command": "kilo-code.new.generateTerminalCommand",
         "title": "Generate Terminal Command",
         "category": "Kilo Code"
+      },
+      {
+        "command": "kilo-code.new.openVoiceStudio",
+        "title": "Open Voice Studio",
+        "category": "Kilo Code"
+      },
+      {
+        "command": "kilo-code.new.switchVoice",
+        "title": "Switch Voice",
+        "category": "Kilo Code"
       }
     ],
     "submenus": [
@@ -627,6 +637,11 @@
         "key": "ctrl+l",
         "mac": "cmd+l",
         "when": "editorTextFocus && !editorTabMovesFocus && !inSnippetMode && kilocode.autocomplete.enableSmartInlineTaskKeybinding && github.copilot.completions.enabled"
+      },
+      {
+        "command": "kilo-code.new.switchVoice",
+        "key": "ctrl+shift+alt+v",
+        "mac": "cmd+shift+alt+v"
       }
     ],
     "configuration": {
@@ -809,6 +824,12 @@
           "minimum": 0.5,
           "maximum": 2.0,
           "description": "Browser speech pitch."
+        },
+        "kilo-code.new.speech.interactionMode": {
+          "type": "string",
+          "enum": ["silent", "assist", "handsfree"],
+          "default": "silent",
+          "markdownDescription": "Voice interaction mode: silent (no speech), assist (auto-speak responses), handsfree (full bidirectional voice control)"
         },
         "kilo-code.new.notifications.agent": {
           "type": "boolean",
