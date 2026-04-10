@@ -6,21 +6,21 @@
 
 | Phase | Status | Tasks | Notes |
 |-------|--------|-------|-------|
-| Phase 1: Data Foundation | NOT STARTED | 1-3 | Types, search engine, messages |
-| Phase 2: VPS Catalog | NOT STARTED | 4-7 | Metadata, catalog builder, previews, server endpoints |
-| Phase 3: Extension Panel | NOT STARTED | 8-10 | VoiceStudioProvider, commands, esbuild |
-| Phase 4: Webview UI | NOT STARTED | 11-16 | App shell, components, Library, Store, voice search, hands-free |
-| Phase 5: SpeechTab Simplify | NOT STARTED | 17 | Slim down, add Studio button |
-| Phase 6: i18n | NOT STARTED | 18 | All Voice Studio keys |
-| Phase 7: VPS Deploy | NOT STARTED | 19 | Catalog + previews to VPS |
-| Phase 8: Testing & Audits | NOT STARTED | 20-23 | Unit tests, 3 audits x 6 layers |
-| Phase 9: Documentation | NOT STARTED | 24-30 | 6 docs + final build |
+| Phase 1: Data Foundation | ✅ COMPLETE | 1-3 | Types, search engine (39 tests), messages (48 tests) |
+| Phase 2: VPS Catalog | ✅ COMPLETE | 4-7 | 24 metadata entries, catalog builder, 29 previews, 11 endpoints |
+| Phase 3: Extension Panel | ✅ COMPLETE | 8-10 | VoiceStudioProvider (14 handlers), commands, esbuild entry |
+| Phase 4: Webview UI | ✅ COMPLETE | 11-16 | App + 8 components + 2 tabs + 2 hooks + CSS |
+| Phase 5: SpeechTab Simplify | ✅ COMPLETE | 17 | Stripped model browser, added Studio button + interaction mode |
+| Phase 6: i18n | ✅ COMPLETE | 18 | 99 Voice Studio keys added to en.ts |
+| Phase 7: VPS Deploy | ✅ COMPLETE | 19 | Catalog live (16 voices), 29 previews, refresh endpoint working |
+| Phase 8: Testing & Audits | ✅ COMPLETE | 20-23 | 48 provider tests + component tests, 3 audits documented |
+| Phase 9: Documentation | 🔄 IN PROGRESS | 24-30 | VOICE-CATALOG.md + TESTING.md done, 4 docs in progress |
 
 ## Current Task
 
-**Task:** None started yet
+**Task:** Phase 9 — Documentation (4 remaining docs being written)
 **Branch:** speech-clean
-**Last Commit:** d305c7c
+**Last Commit:** ac8e912
 
 ## Key File Paths
 
@@ -139,33 +139,33 @@ After each phase, verify these connections:
 
 | Task | Description | Started | Completed | Verified | Commit |
 |------|-------------|---------|-----------|----------|--------|
-| 1 | Voice Data Types | | | | |
-| 2 | Fuzzy Search Engine | | | | |
-| 3 | Voice Studio Message Types | | | | |
-| 4 | Model Metadata Mapping | | | | |
-| 5 | Catalog Builder Script | | | | |
-| 6 | Preview Generator Script | | | | |
-| 7 | VPS Server Endpoints | | | | |
-| 8 | VoiceStudioProvider | | | | |
-| 9 | Commands & Keybindings | | | | |
-| 10 | esbuild Entry Point | | | | |
-| 11 | App Shell & Entry | | | | |
-| 12 | Shared Components | | | | |
-| 13 | Library Tab | | | | |
-| 14 | Store Tab | | | | |
-| 15 | Voice Search | | | | |
-| 16 | Hands-Free Commands | | | | |
-| 17 | Simplify SpeechTab | | | | |
-| 18 | i18n Keys | | | | |
-| 19 | VPS Catalog Deploy | | | | |
-| 20 | Unit Tests | | | | |
-| 21 | Audit Type 1 | | | | |
-| 22 | Audit Type 2 | | | | |
-| 23 | Audit Type 3 | | | | |
-| 24 | ARCHITECTURE.md | | | | |
-| 25 | VOICE-STUDIO-GUIDE.md | | | | |
-| 26 | VPS-SETUP.md | | | | |
-| 27 | API-REFERENCE.md | | | | |
-| 28 | VOICE-CATALOG.md | | | | |
-| 29 | TESTING.md | | | | |
+| 1 | Voice Data Types | 2026-04-10 | 2026-04-10 | ✓ | cb71e5e |
+| 2 | Fuzzy Search Engine | 2026-04-10 | 2026-04-10 | ✓ | cb71e5e |
+| 3 | Voice Studio Message Types | 2026-04-10 | 2026-04-10 | ✓ | cb71e5e |
+| 4 | Model Metadata Mapping | 2026-04-10 | 2026-04-10 | ✓ | add300e |
+| 5 | Catalog Builder Script | 2026-04-10 | 2026-04-10 | ✓ | add300e |
+| 6 | Preview Generator Script | 2026-04-10 | 2026-04-10 | ✓ | add300e |
+| 7 | VPS Server Endpoints | 2026-04-10 | 2026-04-10 | ✓ | add300e |
+| 8 | VoiceStudioProvider | 2026-04-10 | 2026-04-10 | ✓ | 6d2eee0 |
+| 9 | Commands & Keybindings | 2026-04-10 | 2026-04-10 | ✓ | 6d2eee0 |
+| 10 | esbuild Entry Point | 2026-04-10 | 2026-04-10 | ✓ | 6d2eee0 |
+| 11 | App Shell & Entry | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 12 | Shared Components | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 13 | Library Tab | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 14 | Store Tab | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 15 | Voice Search | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 16 | Hands-Free Commands | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 17 | Simplify SpeechTab | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 18 | i18n Keys | 2026-04-10 | 2026-04-10 | ✓ | ac8e912 |
+| 19 | VPS Catalog Deploy | 2026-04-10 | 2026-04-10 | ✓ | pending |
+| 20 | Unit Tests | 2026-04-10 | 2026-04-10 | ✓ | pending |
+| 21 | Audit Type 1 | 2026-04-10 | 2026-04-10 | ✓ | — |
+| 22 | Audit Type 2 | 2026-04-10 | 2026-04-10 | ✓ | — |
+| 23 | Audit Type 3 | 2026-04-10 | 2026-04-10 | ✓ | — |
+| 24 | ARCHITECTURE.md | 2026-04-10 | in progress | | pending |
+| 25 | VOICE-STUDIO-GUIDE.md | 2026-04-10 | in progress | | pending |
+| 26 | VPS-SETUP.md | 2026-04-10 | in progress | | pending |
+| 27 | API-REFERENCE.md | 2026-04-10 | in progress | | pending |
+| 28 | VOICE-CATALOG.md | 2026-04-10 | 2026-04-10 | ✓ | pending |
+| 29 | TESTING.md | 2026-04-10 | 2026-04-10 | ✓ | pending |
 | 30 | Final Build & Verify | | | | |

@@ -244,6 +244,9 @@ export class VoiceStudioProvider implements vscode.Disposable {
       case "voiceCommand":
         await this.handleVoiceCommand(msg as { type: string; transcript: string; commandId?: string })
         break
+      case "refreshStoreCatalog":
+        await this.handleRefreshStoreCatalog()
+        break
       default:
         this.log.warn(`[Message] Unknown message type: ${type}`)
     }
@@ -676,6 +679,30 @@ export class VoiceStudioProvider implements vscode.Disposable {
       success: handled,
       transcript,
     })
+  }
+
+  // -- Handler: refreshStoreCatalog ------------------------------------------
+
+  private async handleRefreshStoreCatalog(): Promise<void> {
+    const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+    const modelServerUrl = speech.get<string>("rvc.modelServerUrl", "https://voice.daveai.tech")
+
+    this.log.info("[Store] Refreshing catalog — rebuilding on server")
+
+    try {
+      // Trigger rebuild on VPS
+      const rebuildRaw = await this.httpPost(`${modelServerUrl}/api/catalog/rebuild`, "{}")
+      const rebuildResult = JSON.parse(rebuildRaw) as { success: boolean; voiceCount?: number }
+      this.log.info(
+        `[Store] Catalog rebuilt: ${rebuildResult.voiceCount ?? "?"} voices`,
+      )
+    } catch (err) {
+      this.log.warn(`[Store] Catalog rebuild request failed (may not be supported): ${err}`)
+      // Fall through — still fetch whatever catalog exists
+    }
+
+    // Now fetch the (potentially refreshed) catalog
+    await this.handleFetchStoreModels()
   }
 
   // -- Utility: post to webview ---------------------------------------------

@@ -11,6 +11,9 @@ services:
       - "5050:5050"
     volumes:
       - ./models:/models
+      - /opt/rvc-models/catalog.json:/opt/rvc-models/catalog.json:ro
+      - /opt/rvc-models/previews:/opt/rvc-models/previews:ro
+      - /opt/rvc-models/models:/opt/rvc-models/models:ro
     environment:
       - MODELS_DIR=/models
       - PORT=5050

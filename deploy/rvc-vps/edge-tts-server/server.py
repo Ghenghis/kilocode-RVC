@@ -22,7 +22,7 @@ MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 PORT = int(os.environ.get("PORT", 5050))
 
 # Voice catalog and preview directories
-RVC_BASE = Path("/opt/rvc-models")
+RVC_BASE = Path(os.environ.get("RVC_BASE", "/opt/rvc-models"))
 CATALOG_FILE = RVC_BASE / "catalog.json"
 PREVIEWS_DIR = RVC_BASE / "previews"
 
@@ -359,6 +359,136 @@ async def synthesize_preview(req: PreviewRequest):
 # ---------------------------------------------------------------------------
 # Disk usage endpoint
 # ---------------------------------------------------------------------------
+
+
+@app.post("/catalog/rebuild")
+async def rebuild_catalog():
+    """Re-scan models directory and regenerate catalog.json.
+
+    Runs build-catalog.py if present, otherwise performs a lightweight
+    scan of the models directory and writes a fresh catalog.json.
+    """
+    import subprocess
+    import time
+
+    models_dir = RVC_BASE / "models"
+    metadata_file = RVC_BASE / "catalog" / "model-metadata.json"
+    builder_script = RVC_BASE / "catalog" / "build-catalog.py"
+
+    if builder_script.exists():
+        # Use the full catalog builder with metadata overrides
+        cmd = [
+            "python3", str(builder_script),
+            "--models-dir", str(models_dir),
+            "--output", str(CATALOG_FILE),
+        ]
+        if metadata_file.exists():
+            cmd.extend(["--metadata", str(metadata_file)])
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if result.returncode != 0:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Catalog build failed: {result.stderr[:500]}",
+                )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Catalog build timed out")
+    else:
+        # Lightweight scan — enumerate model files and write minimal catalog
+        if not models_dir.exists():
+            raise HTTPException(status_code=404, detail="Models directory not found")
+
+        metadata_overrides: dict = {}
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, "r", encoding="utf-8") as mf:
+                    metadata_overrides = json.load(mf)
+            except Exception:
+                pass
+
+        voices = []
+        for entry in sorted(models_dir.iterdir()):
+            if not entry.is_dir():
+                # Check for loose model files
+                if entry.suffix.lower() in MODEL_EXTENSIONS:
+                    voice_id = entry.stem
+                    override = metadata_overrides.get(voice_id, {})
+                    voices.append({
+                        "id": voice_id,
+                        "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
+                        "description": override.get("description", ""),
+                        "gender": override.get("gender", "neutral"),
+                        "accent": override.get("accent", "en-US"),
+                        "accentLabel": override.get("accentLabel", "American English"),
+                        "style": override.get("style", "natural"),
+                        "quality": override.get("quality", 3),
+                        "sampleRate": override.get("sampleRate", 40000),
+                        "fileSize": entry.stat().st_size,
+                        "tags": override.get("tags", []),
+                        "downloadUrl": f"/models/{entry.name}",
+                        "heroClipUrl": None,
+                        "category": "uncategorized",
+                        "addedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry.stat().st_mtime)),
+                    })
+                continue
+
+            # Directory-based models
+            voice_id = entry.name
+            model_files = [f for f in entry.rglob("*") if f.suffix.lower() in MODEL_EXTENSIONS]
+            if not model_files:
+                continue
+
+            total_size = sum(f.stat().st_size for f in model_files)
+            override = metadata_overrides.get(voice_id, {})
+
+            # Check for preview clip
+            preview_file = PREVIEWS_DIR / f"{voice_id}.mp3"
+            hero_url = f"/preview/{voice_id}.mp3" if preview_file.exists() else None
+
+            voices.append({
+                "id": voice_id,
+                "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
+                "description": override.get("description", ""),
+                "gender": override.get("gender", "neutral"),
+                "accent": override.get("accent", "en-US"),
+                "accentLabel": override.get("accentLabel", "American English"),
+                "style": override.get("style", "natural"),
+                "quality": override.get("quality", 3),
+                "sampleRate": override.get("sampleRate", 40000),
+                "fileSize": total_size,
+                "tags": override.get("tags", []),
+                "downloadUrl": f"/models/{voice_id}",
+                "heroClipUrl": hero_url,
+                "category": override.get("category", "uncategorized"),
+                "addedAt": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    time.gmtime(max(f.stat().st_mtime for f in model_files)),
+                ),
+            })
+
+        catalog = {
+            "version": 1,
+            "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "totalModels": len(voices),
+            "totalSizeBytes": sum(v["fileSize"] for v in voices),
+            "voices": voices,
+        }
+
+        CATALOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(CATALOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(catalog, f, indent=2)
+
+    # Read back the generated catalog
+    with open(CATALOG_FILE, "r", encoding="utf-8") as f:
+        catalog = json.load(f)
+
+    voice_count = len(catalog.get("voices", [])) if isinstance(catalog, dict) else len(catalog)
+    return {
+        "success": True,
+        "voiceCount": voice_count,
+        "generatedAt": catalog.get("generatedAt", "") if isinstance(catalog, dict) else "",
+    }
 
 
 @app.get("/disk")

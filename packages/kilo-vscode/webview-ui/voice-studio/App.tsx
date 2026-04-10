@@ -40,6 +40,9 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
   const [interactionMode, setInteractionMode] = createSignal<InteractionMode>("silent")
   const [activeVoiceId, setActiveVoiceId] = createSignal<string | null>(null)
 
+  // Refresh state
+  const [refreshing, setRefreshing] = createSignal(false)
+
   // Loading / error states
   const [libraryLoading, setLibraryLoading] = createSignal(true)
   const [storeLoading, setStoreLoading] = createSignal(true)
@@ -177,6 +180,7 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
 
       case "storeModelsLoaded": {
         setStoreLoading(false)
+        setRefreshing(false)
         if (msg.error) {
           setStoreError(String(msg.error))
         } else {
@@ -384,6 +388,14 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
     return downloadJobs().has(modelId)
   }
 
+  function handleRefreshCatalog() {
+    if (refreshing()) return
+    setRefreshing(true)
+    setStoreLoading(true)
+    setStoreError(null)
+    send({ type: "refreshStoreCatalog" })
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
@@ -409,6 +421,20 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
             </button>
           </div>
           <div class="vs-header-actions">
+            <Show when={activeTab() === "store"}>
+              <button
+                class={`vs-icon-btn${refreshing() ? " vs-icon-btn--spinning" : ""}`}
+                onClick={handleRefreshCatalog}
+                disabled={refreshing()}
+                type="button"
+                title="Refresh catalog — re-scan server for new voice models"
+                aria-label="Refresh catalog"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M13.451 5.609l-.579-.939-1.068.812-.076.094c.335.57.527 1.229.527 1.934a4.093 4.093 0 01-4.09 4.09 4.093 4.093 0 01-4.09-4.09 4.093 4.093 0 014.09-4.09c.635 0 1.232.145 1.767.402l-.98.98h3.168V1.634L11.14 2.614A5.575 5.575 0 008.165 1.5a5.595 5.595 0 00-5.59 5.59 5.595 5.595 0 005.59 5.59 5.595 5.595 0 005.59-5.59c0-1.062-.303-2.053-.82-2.898l.516-.583z" />
+                </svg>
+              </button>
+            </Show>
             <ViewToggle mode={viewMode()} onChange={setViewMode} />
           </div>
         </div>

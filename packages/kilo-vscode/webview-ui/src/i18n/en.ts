@@ -1181,6 +1181,9 @@ export const dict = {
   "settings.speech.voiceStudio.store.empty": "No models available",
   "settings.speech.voiceStudio.store.diskUsage": "Disk Usage",
   "settings.speech.voiceStudio.store.diskUsed": "used",
+  "settings.speech.voiceStudio.store.refresh": "Refresh catalog",
+  "settings.speech.voiceStudio.store.refreshTooltip": "Re-scan server for new voice models",
+  "settings.speech.voiceStudio.store.refreshing": "Refreshing...",
 
   "settings.speech.voiceStudio.downloads.title": "Downloads",
   "settings.speech.voiceStudio.downloads.queued": "Queued",
