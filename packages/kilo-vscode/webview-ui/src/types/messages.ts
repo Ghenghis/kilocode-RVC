@@ -1507,6 +1507,17 @@ export type ExtensionMessage =
   | McpStatusLoadedMessage
   | ClearPendingPromptsMessage
   | ExtensionDataReadyMessage
+  // Voice Studio (extension → webview)
+  | VoiceLibraryLoadedMessage
+  | StoreModelsLoadedMessage
+  | DownloadProgressMessage
+  | DownloadCompleteMessage
+  | DownloadFailedMessage
+  | PreviewAudioReadyMessage
+  | VoiceCommandAckMessage
+  | InteractionModeChangedMessage
+  | VoiceStudioStateMessage
+  | DiskUsageMessage
 
 // ============================================
 // Messages FROM webview TO extension
@@ -1833,6 +1844,156 @@ export interface DownloadRvcModelMessage {
   type: "downloadRvcModel"
   url: string
   name: string
+}
+
+// ============================================
+// Voice Studio messages (webview → extension)
+// ============================================
+
+export interface OpenVoiceStudioMessage {
+  type: "openVoiceStudio"
+}
+
+export interface FetchVoiceLibraryMessage {
+  type: "fetchVoiceLibrary"
+}
+
+export interface FetchStoreModelsMessage {
+  type: "fetchStoreModels"
+  page?: number
+  limit?: number
+}
+
+export interface PreviewStoreVoiceMessage {
+  type: "previewStoreVoice"
+  modelId: string
+  text: string
+}
+
+export interface DownloadModelMessage {
+  type: "downloadModel"
+  modelId: string
+  name: string
+  url: string
+  fileSize: number
+}
+
+export interface CancelDownloadMessage {
+  type: "cancelDownload"
+  modelId: string
+}
+
+export interface DeleteModelMessage {
+  type: "deleteModel"
+  modelId: string
+  provider: string
+}
+
+export interface ToggleFavoriteVoiceMessage {
+  type: "toggleFavorite"
+  voiceId: string
+}
+
+export interface SetActiveVoiceMessage {
+  type: "setActiveVoice"
+  voiceId: string
+  provider: string
+}
+
+export interface SaveSearchMessage {
+  type: "saveSearch"
+  name: string
+  query: string
+  filters: import("./voice").FilterState
+}
+
+export interface DeleteSavedSearchMessage {
+  type: "deleteSavedSearch"
+  name: string
+}
+
+export interface SwitchInteractionModeMessage {
+  type: "switchInteractionMode"
+  mode: import("./voice").InteractionMode
+}
+
+export interface VoiceCommandMessage {
+  type: "voiceCommand"
+  command: string
+  transcript: string
+}
+
+export interface RequestVoiceStudioStateMessage {
+  type: "requestVoiceStudioState"
+}
+
+// ============================================
+// Voice Studio messages (extension → webview)
+// ============================================
+
+export interface VoiceLibraryLoadedMessage {
+  type: "voiceLibraryLoaded"
+  voices: import("./voice").VoiceEntry[]
+}
+
+export interface StoreModelsLoadedMessage {
+  type: "storeModelsLoaded"
+  catalog: import("./voice").VoiceCatalogResponse
+}
+
+export interface DownloadProgressMessage {
+  type: "downloadProgress"
+  modelId: string
+  receivedBytes: number
+  totalBytes: number
+  status: import("./voice").DownloadStatus
+}
+
+export interface DownloadCompleteMessage {
+  type: "downloadComplete"
+  modelId: string
+  name: string
+}
+
+export interface DownloadFailedMessage {
+  type: "downloadFailed"
+  modelId: string
+  error: string
+}
+
+export interface PreviewAudioReadyMessage {
+  type: "previewAudioReady"
+  modelId: string
+  audioBase64: string
+  mimeType: string
+}
+
+export interface VoiceCommandAckMessage {
+  type: "voiceCommandAck"
+  command: string
+  success: boolean
+  message?: string
+}
+
+export interface InteractionModeChangedMessage {
+  type: "interactionModeChanged"
+  mode: import("./voice").InteractionMode
+}
+
+export interface VoiceStudioStateMessage {
+  type: "voiceStudioState"
+  favorites: string[]
+  recentSearches: string[]
+  savedSearches: import("./voice").SavedSearch[]
+  interactionMode: import("./voice").InteractionMode
+  activeVoiceId: string | null
+}
+
+export interface DiskUsageMessage {
+  type: "diskUsage"
+  usedBytes: number
+  maxBytes: number
+  modelCount: number
 }
 
 export interface ResetAllSettingsRequest {
@@ -2428,6 +2589,21 @@ export type WebviewMessage =
   | ToggleSectionCollapsedRequest
   | MoveToSectionRequest
   | MoveSectionRequest
+  // Voice Studio (webview → extension)
+  | OpenVoiceStudioMessage
+  | FetchVoiceLibraryMessage
+  | FetchStoreModelsMessage
+  | PreviewStoreVoiceMessage
+  | DownloadModelMessage
+  | CancelDownloadMessage
+  | DeleteModelMessage
+  | ToggleFavoriteVoiceMessage
+  | SetActiveVoiceMessage
+  | SaveSearchMessage
+  | DeleteSavedSearchMessage
+  | SwitchInteractionModeMessage
+  | VoiceCommandMessage
+  | RequestVoiceStudioStateMessage
 
 // ============================================
 // VS Code API type
