@@ -95,9 +95,12 @@ export class VoiceStudioProvider implements vscode.Disposable {
     inst.wirePanel(panel)
   }
 
-  /** Re-wire a deserialized panel after extension restart. */
-  public deserializePanel(panel: vscode.WebviewPanel): void {
-    this.wirePanel(panel)
+  /** Called by the panel serializer to restore a panel after VS Code restarts. */
+  public static restorePanel(context: vscode.ExtensionContext, extensionUri: vscode.Uri, panel: vscode.WebviewPanel): void {
+    if (!VoiceStudioProvider.instance) {
+      VoiceStudioProvider.instance = new VoiceStudioProvider(extensionUri, context)
+    }
+    VoiceStudioProvider.instance.wirePanel(panel)
   }
 
   // -- Panel wiring ---------------------------------------------------------
@@ -304,8 +307,8 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
     let voices: unknown[] = []
     try {
-      // Query the RVC Docker container for installed voice models
-      const raw = await this.httpGet(`http://127.0.0.1:${port}/api/voices`)
+      // Query the RVC Docker container for installed voice models (direct, no /api/ prefix)
+      const raw = await this.httpGet(`http://127.0.0.1:${port}/voices`)
       const parsed = JSON.parse(raw) as { voices?: unknown[] }
       voices = parsed.voices ?? []
       this.log.info(`[Library] Received ${voices.length} voices from Docker`)
@@ -350,12 +353,24 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
     try {
       const raw = await this.httpGet(`${modelServerUrl}/api/catalog`)
-      const catalog = JSON.parse(raw) as { models?: StoreModel[]; diskUsage?: unknown }
-      this.log.info(`[Store] Received ${catalog.models?.length ?? 0} models from store`)
+      // Server returns { voices: StoreModel[], total: number }
+      const catalog = JSON.parse(raw) as { voices?: StoreModel[]; total?: number }
+      const models = catalog.voices ?? []
+      this.log.info(`[Store] Received ${models.length} models from store`)
+
+      // Fetch disk usage separately
+      let diskUsage: unknown = null
+      try {
+        const diskRaw = await this.httpGet(`${modelServerUrl}/api/disk`)
+        diskUsage = JSON.parse(diskRaw)
+      } catch {
+        // disk endpoint is optional — ignore failures
+      }
+
       this.post({
         type: "storeModelsLoaded",
-        models: catalog.models ?? [],
-        diskUsage: catalog.diskUsage ?? null,
+        models,
+        diskUsage,
       })
     } catch (err) {
       this.log.error(`[Store] Failed to fetch store catalog: ${err}`)
@@ -403,13 +418,22 @@ export class VoiceStudioProvider implements vscode.Disposable {
     url: string
     name: string
   }): Promise<void> {
-    const { modelId, url, name } = msg
+    const { modelId, url } = msg
+
+    // Sanitize name: only allow alphanumeric, hyphens, underscores, dots
+    const name = (msg.name ?? "").replace(/[^a-zA-Z0-9_\-.]/g, "_").slice(0, 128)
+    if (!name) {
+      this.log.error(`[Download] Invalid model name: "${msg.name}"`)
+      this.post({ type: "downloadComplete", modelId, success: false, error: "Invalid model name" })
+      return
+    }
+
     this.log.info(`[Download] Starting download: ${name} (${modelId}) from ${url}`)
 
     const controller = new AbortController()
     this.downloads.set(modelId, { controller, received: 0, total: 0 })
 
-    const tmpFile = path.join(os.tmpdir(), `${name}.pth`)
+    const tmpFile = path.join(os.tmpdir(), `voice-studio-${name}.pth`)
 
     try {
       await this.downloadWithProgress(url, tmpFile, controller.signal, (received, total) => {
@@ -487,10 +511,18 @@ export class VoiceStudioProvider implements vscode.Disposable {
   // -- Handler: deleteModel -------------------------------------------------
 
   private async handleDeleteModel(msg: { type: string; modelId: string; name: string }): Promise<void> {
-    this.log.info(`[Library] Deleting model ${msg.name} (${msg.modelId})`)
+    // Sanitize name to prevent shell injection
+    const safeName = (msg.name ?? "").replace(/[^a-zA-Z0-9_\-.]/g, "_").slice(0, 128)
+    this.log.info(`[Library] Deleting model ${safeName} (${msg.modelId})`)
+
+    if (!safeName) {
+      this.log.error(`[Library] Invalid model name for deletion: "${msg.name}"`)
+      this.post({ type: "modelDeleted", modelId: msg.modelId, success: false, error: "Invalid model name" })
+      return
+    }
 
     try {
-      await this.execAsync(`docker exec edge-tts-server rm -rf "/models/${msg.name}.pth"`)
+      await this.execAsync(`docker exec edge-tts-server rm -rf "/models/${safeName}.pth"`)
       this.log.info(`[Library] Model ${msg.name} deleted from Docker container`)
 
       // Remove from favorites if present

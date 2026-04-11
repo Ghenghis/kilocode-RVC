@@ -178,6 +178,16 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   )
 
+  // Register serializer so Voice Studio panel restores when VS Code restarts
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(VoiceStudioProvider.viewType, {
+      deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        VoiceStudioProvider.restorePanel(context, context.extensionUri, panel)
+        return Promise.resolve()
+      },
+    }),
+  )
+
   // Register toolbar button command handlers
   context.subscriptions.push(
     vscode.commands.registerCommand("kilo-code.new.plusButtonClicked", () => {
