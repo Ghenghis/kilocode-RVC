@@ -40,6 +40,22 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
   const [interactionMode, setInteractionMode] = createSignal<InteractionMode>("silent")
   const [activeVoiceId, setActiveVoiceId] = createSignal<string | null>(null)
 
+  // Debug mode
+  const [debugMode, setDebugMode] = createSignal(false)
+  const [debugLog, setDebugLog] = createSignal<Array<{ time: string; dir: "in" | "out"; type: string; detail: string }>>([])
+
+  function appendDebugLog(dir: "in" | "out", msg: Record<string, unknown>) {
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false })
+    const type = String(msg.type ?? "?")
+    let detail = ""
+    if (type === "voiceLibraryLoaded") detail = `${(msg.voices as unknown[])?.length ?? 0} voices`
+    else if (type === "storeModelsLoaded") detail = `${(msg.models as unknown[])?.length ?? 0} models`
+    else if (type === "downloadProgress") detail = `${msg.modelId} ${msg.received}/${msg.total}B`
+    else if (type === "previewAudioReady") detail = msg.error ? `err: ${msg.error}` : "audio ready"
+    else if (type === "downloadModel") detail = `${msg.name} → ${msg.url}`
+    setDebugLog((prev) => [{ time, dir, type, detail }, ...prev].slice(0, 200))
+  }
+
   // Refresh state
   const [refreshing, setRefreshing] = createSignal(false)
 
@@ -114,6 +130,7 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
   // ── Message sending ─────────────────────────────────────────────────────
 
   function send(msg: Record<string, unknown>) {
+    if (debugMode()) appendDebugLog("out", msg)
     props.vscode.postMessage(msg)
   }
 
@@ -128,6 +145,8 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
   function onMessage(event: MessageEvent) {
     const msg = event.data
     if (!msg || !msg.type) return
+
+    if (debugMode()) appendDebugLog("in", msg as Record<string, unknown>)
 
     switch (msg.type) {
       case "voiceStudioState": {
@@ -421,6 +440,17 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
             </button>
           </div>
           <div class="vs-header-actions">
+            <button
+              class={`vs-icon-btn${debugMode() ? " vs-icon-btn--active" : ""}`}
+              onClick={() => setDebugMode((d) => !d)}
+              type="button"
+              title="Toggle debug mode"
+              aria-label="Toggle debug mode"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M5.5 1a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1zm4 0a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1zM3 4.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 11.5v-7zm2 1v1h1v-1H5zm3 0v1h1v-1H8zm3 0v1h1v-1h-1zM5 8.5v1h1v-1H5zm3 0v1h1v-1H8zm3 0v1h1v-1h-1z"/>
+              </svg>
+            </button>
             <Show when={activeTab() === "store"}>
               <button
                 class={`vs-icon-btn${refreshing() ? " vs-icon-btn--spinning" : ""}`}
@@ -626,6 +656,43 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
           onPlayPause={togglePlayPause}
           onStop={stopAudio}
         />
+      </Show>
+
+      {/* Debug panel */}
+      <Show when={debugMode()}>
+        <div class="vs-debug-panel">
+          <div class="vs-debug-header">
+            <span class="vs-debug-title">DEBUG</span>
+            <div class="vs-debug-state">
+              lib:{voices().length} store:{storeVoices().length}
+              {libraryLoading() ? " lib:loading" : ""}
+              {storeLoading() ? " store:loading" : ""}
+              {libraryError() ? ` lib-err:${libraryError()}` : ""}
+              {storeError() ? ` store-err:${storeError()}` : ""}
+            </div>
+            <div class="vs-debug-actions">
+              <button class="vs-debug-btn" type="button" onClick={() => { send({ type: "fetchVoiceLibrary" }); setLibraryLoading(true) }}>Reload Lib</button>
+              <button class="vs-debug-btn" type="button" onClick={() => { send({ type: "fetchStoreModels" }); setStoreLoading(true) }}>Reload Store</button>
+              <button class="vs-debug-btn" type="button" onClick={() => send({ type: "requestVoiceStudioState" })}>Get State</button>
+              <button class="vs-debug-btn" type="button" onClick={() => send({ type: "refreshStoreCatalog" })}>Rebuild Catalog</button>
+              <button class="vs-debug-btn" type="button" onClick={() => setDebugLog([])}>Clear Log</button>
+            </div>
+          </div>
+          <div class="vs-debug-log">
+            <For each={debugLog()}>
+              {(entry) => (
+                <div class={`vs-debug-entry vs-debug-entry--${entry.dir}`}>
+                  <span class="vs-debug-time">{entry.time}</span>
+                  <span class="vs-debug-dir">{entry.dir === "in" ? "←" : "→"}</span>
+                  <span class="vs-debug-type">{entry.type}</span>
+                  <Show when={entry.detail}>
+                    <span class="vs-debug-detail">{entry.detail}</span>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
       </Show>
     </div>
   )

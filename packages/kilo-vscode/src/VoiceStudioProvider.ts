@@ -307,11 +307,11 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
     let voices: unknown[] = []
     try {
-      // Query the RVC Docker container for installed voice models (direct, no /api/ prefix)
-      const raw = await this.httpGet(`http://127.0.0.1:${port}/voices`)
-      const parsed = JSON.parse(raw) as { voices?: unknown[] }
+      // Query the RVC Docker container catalog — returns installed RVC models with full metadata
+      const raw = await this.httpGet(`http://127.0.0.1:${port}/catalog`)
+      const parsed = JSON.parse(raw) as { voices?: unknown[]; total?: number }
       voices = parsed.voices ?? []
-      this.log.info(`[Library] Received ${voices.length} voices from Docker`)
+      this.log.info(`[Library] Received ${voices.length} voices from catalog`)
     } catch (err) {
       this.log.error(`[Library] Failed to fetch voices from Docker: ${err}`)
       // Fall back to listing models via docker exec

@@ -1223,6 +1223,9 @@ export const dict = {
   "settings.speech.voiceStudio.openButton": "Open Voice Studio",
   "settings.speech.voiceStudio.openDescription": "Browse, search, and manage voice models",
 
+  "settings.speech.interactionMode.title": "Interaction Mode",
+  "settings.speech.interactionMode.description": "Choose how voice responses work during your session",
+
   "settings.speech.voiceStudio.view.grid": "Grid view",
   "settings.speech.voiceStudio.view.list": "List view",
 

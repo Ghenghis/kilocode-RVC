@@ -252,7 +252,7 @@ const SpeechTab: Component = () => {
       <Card>
         <SettingsRow
           title={language.t("settings.speech.voiceStudio.title")}
-          description={language.t("settings.speech.voiceStudio.description")}
+          description={language.t("settings.speech.voiceStudio.openDescription")}
           last
         >
           <Button
@@ -262,7 +262,7 @@ const SpeechTab: Component = () => {
               vscode.postMessage({ type: "openVoiceStudio" })
             }}
           >
-            {language.t("settings.speech.voiceStudio.open")}
+            {language.t("settings.speech.voiceStudio.openButton")}
           </Button>
         </SettingsRow>
       </Card>
@@ -299,12 +299,12 @@ const SpeechTab: Component = () => {
         >
           <Select
             options={[
-              { value: "silent", label: language.t("settings.speech.interactionMode.silent") },
-              { value: "assist", label: language.t("settings.speech.interactionMode.assist") },
-              { value: "handsfree", label: language.t("settings.speech.interactionMode.handsfree") },
+              { value: "silent", label: language.t("settings.speech.voiceStudio.interaction.silent") },
+              { value: "assist", label: language.t("settings.speech.voiceStudio.interaction.assist") },
+              { value: "handsfree", label: language.t("settings.speech.voiceStudio.interaction.handsfree") },
             ]}
             current={
-              { value: settings().interactionMode || "silent", label: language.t(`settings.speech.interactionMode.${settings().interactionMode || "silent"}`) }
+              { value: settings().interactionMode || "silent", label: language.t(`settings.speech.voiceStudio.interaction.${settings().interactionMode || "silent"}`) }
             }
             value={(o) => o.value}
             label={(o) => o.label}
