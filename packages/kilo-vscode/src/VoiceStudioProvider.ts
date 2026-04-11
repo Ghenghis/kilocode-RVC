@@ -121,9 +121,18 @@ export class VoiceStudioProvider implements vscode.Disposable {
       this.disposables,
     )
 
+    // Watch for debugMode config change and push to webview in real time
+    const configWatcher = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-code.new.speech.debugMode")) {
+        const enabled = vscode.workspace.getConfiguration("kilo-code.new.speech").get<boolean>("debugMode", false)
+        this.post({ type: "debugModeChanged", enabled })
+      }
+    })
+
     panel.onDidDispose(
       () => {
         this.log.info("[Panel] Disposed")
+        configWatcher.dispose()
         // Abort all in-flight downloads
         this.downloads.forEach((tracker, id) => {
           tracker.controller.abort()
@@ -267,6 +276,7 @@ export class VoiceStudioProvider implements vscode.Disposable {
       recentSearches: gs.get<string[]>(GS_RECENT_SEARCHES, []),
       savedSearches: gs.get<SavedSearch[]>(GS_SAVED_SEARCHES, []),
       interactionMode: gs.get<string>(GS_INTERACTION_MODE, "manual"),
+      debugMode: speech.get<boolean>("debugMode", false),
       speechSettings: {
         enabled: speech.get<boolean>("enabled", false),
         autoSpeak: speech.get<boolean>("autoSpeak", false),

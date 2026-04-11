@@ -154,6 +154,7 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
         setRecentSearches(msg.recentSearches ?? [])
         setSavedSearches(msg.savedSearches ?? [])
         setInteractionMode(msg.interactionMode ?? "silent")
+        setDebugMode(!!(msg.debugMode))
         if (msg.speechSettings) {
           const ss = msg.speechSettings
           // Determine active voice based on current provider
@@ -291,6 +292,11 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
 
       case "interactionModeChanged": {
         setInteractionMode(msg.mode as InteractionMode)
+        break
+      }
+
+      case "debugModeChanged": {
+        setDebugMode(!!(msg.enabled))
         break
       }
 
@@ -440,17 +446,6 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
             </button>
           </div>
           <div class="vs-header-actions">
-            <button
-              class={`vs-icon-btn${debugMode() ? " vs-icon-btn--active" : ""}`}
-              onClick={() => setDebugMode((d) => !d)}
-              type="button"
-              title="Toggle debug mode"
-              aria-label="Toggle debug mode"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M5.5 1a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1zm4 0a.5.5 0 0 0 0 1h1a.5.5 0 0 0 0-1h-1zM3 4.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 11.5v-7zm2 1v1h1v-1H5zm3 0v1h1v-1H8zm3 0v1h1v-1h-1zM5 8.5v1h1v-1H5zm3 0v1h1v-1H8zm3 0v1h1v-1h-1z"/>
-              </svg>
-            </button>
             <Show when={activeTab() === "store"}>
               <button
                 class={`vs-icon-btn${refreshing() ? " vs-icon-btn--spinning" : ""}`}

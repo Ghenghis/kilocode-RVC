@@ -5,6 +5,7 @@ import { TextField } from "@kilocode/kilo-ui/text-field"
 import { Card } from "@kilocode/kilo-ui/card"
 import { useConfig } from "../../context/config"
 import { useLanguage } from "../../context/language"
+import { useVSCode } from "../../context/vscode"
 import SettingsRow from "./SettingsRow"
 
 interface ShareOption {
@@ -21,6 +22,7 @@ const SHARE_OPTIONS: ShareOption[] = [
 const ExperimentalTab: Component = () => {
   const { config, updateConfig } = useConfig()
   const language = useLanguage()
+  const vscode = useVSCode()
 
   const experimental = createMemo(() => config().experimental ?? {})
 
@@ -130,6 +132,23 @@ const ExperimentalTab: Component = () => {
             hideLabel
           >
             {language.t("settings.experimental.continueOnDeny.title")}
+          </Switch>
+        </SettingsRow>
+
+        {/* Voice Studio Debug Mode */}
+        <SettingsRow
+          title={language.t("settings.experimental.voiceStudioDebug.title")}
+          description={language.t("settings.experimental.voiceStudioDebug.description")}
+        >
+          <Switch
+            checked={experimental().voiceStudio_debug ?? false}
+            onChange={(checked) => {
+              updateExperimental("voiceStudio_debug", checked)
+              vscode.postMessage({ type: "setVoiceStudioDebug", enabled: checked })
+            }}
+            hideLabel
+          >
+            {language.t("settings.experimental.voiceStudioDebug.title")}
           </Switch>
         </SettingsRow>
 
