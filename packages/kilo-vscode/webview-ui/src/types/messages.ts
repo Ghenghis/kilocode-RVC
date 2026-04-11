@@ -1519,6 +1519,7 @@ export type ExtensionMessage =
   | InteractionModeChangedMessage
   | VoiceStudioStateMessage
   | DiskUsageMessage
+  | RvcSetupProgressMessage
 
 // ============================================
 // Messages FROM webview TO extension
@@ -1864,6 +1865,22 @@ export interface KiloDebugConsoleMessage {
   type: "kiloDebugConsole"
   level: string
   args: unknown[]
+}
+
+/** Trigger automated Docker RVC setup from the settings panel (webview → extension) */
+export interface AutoSetupRvcMessage {
+  type: "autoSetupRvc"
+}
+
+/** Progress update during automated RVC Docker setup (extension → webview) */
+export interface RvcSetupProgressMessage {
+  type: "rvcSetupProgress"
+  step: string
+  detail?: string
+  error?: string
+  done?: boolean
+  port?: number
+  voices?: Array<{ id: string; sizeMB: number }>
 }
 
 export interface FetchVoiceLibraryMessage {
@@ -2618,6 +2635,7 @@ export type WebviewMessage =
   | SwitchInteractionModeMessage
   | VoiceCommandMessage
   | RequestVoiceStudioStateMessage
+  | AutoSetupRvcMessage
 
 // ============================================
 // VS Code API type

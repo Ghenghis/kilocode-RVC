@@ -155,6 +155,11 @@ const SpeechTab: Component = () => {
   const [browserVoices, setBrowserVoices] = createSignal<SpeechSynthesisVoice[]>([])
   const [azureLocale, setAzureLocale] = createSignal("all")
 
+  // Auto-setup state
+  const [autoSetupRunning, setAutoSetupRunning] = createSignal(false)
+  const [autoSetupSteps, setAutoSetupSteps] = createSignal<Array<{ step: string; detail?: string; error?: string }>>([])
+  const [autoSetupDone, setAutoSetupDone] = createSignal(false)
+
   // Load browser voices
   onMount(() => {
     const loadVoices = () => {
@@ -170,6 +175,28 @@ const SpeechTab: Component = () => {
   const unsubscribe = vscode.onMessage((message: ExtensionMessage) => {
     if (message.type === "speechSettingsLoaded") {
       setSettings(message.settings as unknown as SpeechSettings)
+    }
+    if (message.type === "rvcSetupProgress") {
+      setAutoSetupSteps((prev) => [...prev, { step: message.step, detail: message.detail, error: message.error }])
+      if (message.done) {
+        setAutoSetupRunning(false)
+        setAutoSetupDone(true)
+        if (message.voices && message.voices.length > 0) {
+          setRvcVoices(message.voices)
+          setRvcOnline(true)
+          if (message.port) {
+            setSettings((prev) => ({ ...prev, rvc: { ...prev.rvc, dockerPort: message.port! } }))
+          }
+          // Auto-select first voice if none selected
+          if (!settings().rvc.voiceId && message.voices![0]) {
+            const firstVoice = message.voices![0].id
+            updateNested("rvc", "voiceId", firstVoice)
+          }
+        }
+      }
+      if (message.error && !message.done) {
+        setAutoSetupRunning(false)
+      }
     }
   })
   onCleanup(() => {
@@ -358,7 +385,7 @@ const SpeechTab: Component = () => {
       <Show when={provider() === "rvc"}>
         <h4 style={{ "margin-top": "0", "margin-bottom": "8px" }}>{language.t("settings.speech.rvc.title")}</h4>
 
-        {/* Setup instructions */}
+        {/* Auto Setup Panel */}
         <div
           style={{
             background: "var(--vscode-textBlockQuote-background)",
@@ -368,82 +395,58 @@ const SpeechTab: Component = () => {
             "margin-bottom": "12px",
           }}
         >
-          <p
-            style={{
-              "font-size": "12px",
-              color: "var(--vscode-descriptionForeground)",
-              margin: "0 0 8px 0",
-              "line-height": "1.5",
-              "font-weight": "600",
-            }}
-          >
+          <p style={{ "font-size": "12px", color: "var(--vscode-descriptionForeground)", margin: "0 0 8px 0", "font-weight": "600" }}>
             {language.t("settings.speech.rvc.setup.title")}
           </p>
-          <p
-            style={{
-              "font-size": "12px",
-              color: "var(--vscode-descriptionForeground)",
-              margin: "0 0 8px 0",
-              "line-height": "1.5",
-            }}
-          >
-            {language.t("settings.speech.rvc.setup.step1")}
+          <p style={{ "font-size": "12px", color: "var(--vscode-descriptionForeground)", margin: "0 0 10px 0", "line-height": "1.5" }}>
+            {language.t("settings.speech.rvc.setup.autoDesc")}
           </p>
-          <div
-            style={{
-              background: "var(--vscode-editor-background)",
-              border: "1px solid var(--vscode-input-border)",
-              "border-radius": "4px",
-              padding: "8px 12px",
-              "font-family": "var(--vscode-editor-font-family, monospace)",
-              "font-size": "12px",
-              color: "var(--vscode-editor-foreground)",
-              "margin-bottom": "8px",
-              "white-space": "pre-wrap",
-              "word-break": "break-all",
-              "user-select": "all",
-            }}
-          >
-            docker pull ghcr.io/ghenghis/kilocode-rvc:latest{"\n"}docker run -d -p 5050:5050 --name kilocode-rvc ghcr.io/ghenghis/kilocode-rvc:latest
+          <div style={{ display: "flex", gap: "8px", "align-items": "center", "margin-bottom": autoSetupSteps().length > 0 ? "12px" : "0" }}>
+            <Button
+              variant="primary"
+              size="small"
+              disabled={autoSetupRunning()}
+              onClick={() => {
+                setAutoSetupSteps([])
+                setAutoSetupDone(false)
+                setAutoSetupRunning(true)
+                vscode.postMessage({ type: "autoSetupRvc" })
+              }}
+            >
+              {autoSetupRunning()
+                ? language.t("settings.speech.rvc.setup.running")
+                : autoSetupDone()
+                  ? language.t("settings.speech.rvc.setup.rerun")
+                  : language.t("settings.speech.rvc.setup.autoButton")}
+            </Button>
+            <Show when={autoSetupDone() && rvcOnline()}>
+              <span style={{ "font-size": "11px", color: "var(--vscode-testing-iconPassed)" }}>
+                ✓ {language.t("settings.speech.rvc.online")}
+              </span>
+            </Show>
           </div>
-          <p
-            style={{
-              "font-size": "12px",
-              color: "var(--vscode-descriptionForeground)",
-              margin: "0 0 8px 0",
-              "line-height": "1.5",
-            }}
-          >
-            {language.t("settings.speech.rvc.setup.step2")}
-          </p>
-          <div
-            style={{
-              background: "var(--vscode-editor-background)",
-              border: "1px solid var(--vscode-input-border)",
-              "border-radius": "4px",
-              padding: "8px 12px",
-              "font-family": "var(--vscode-editor-font-family, monospace)",
-              "font-size": "12px",
-              color: "var(--vscode-editor-foreground)",
-              "margin-bottom": "8px",
-              "white-space": "pre-wrap",
-              "word-break": "break-all",
-              "user-select": "all",
-            }}
-          >
-            docker cp ./my-voice-model kilocode-rvc:/app/voices/my-voice-model
-          </div>
-          <p
-            style={{
-              "font-size": "11px",
-              color: "var(--vscode-descriptionForeground)",
-              margin: 0,
-              "line-height": "1.4",
-              "font-style": "italic",
-            }}
-          >
-            {language.t("settings.speech.rvc.setup.note")}
-          </p>
+
+          <Show when={autoSetupSteps().length > 0}>
+            <div style={{ "font-size": "11px", "line-height": "1.6" }}>
+              {autoSetupSteps().map((s) => (
+                <div style={{ display: "flex", gap: "6px", "align-items": "flex-start", "padding": "1px 0" }}>
+                  <span style={{ color: s.error ? "var(--vscode-testing-iconFailed)" : "var(--vscode-testing-iconPassed)", "flex-shrink": "0" }}>
+                    {s.error ? "✗" : "✓"}
+                  </span>
+                  <span style={{ color: s.error ? "var(--vscode-testing-iconFailed)" : "var(--vscode-foreground)" }}>
+                    {s.step}
+                    {s.detail ? <span style={{ color: "var(--vscode-descriptionForeground)" }}> — {s.detail}</span> : null}
+                  </span>
+                </div>
+              ))}
+              <Show when={autoSetupRunning()}>
+                <div style={{ display: "flex", gap: "6px", "padding": "1px 0", color: "var(--vscode-descriptionForeground)" }}>
+                  <span>⏳</span>
+                  <span>{language.t("settings.speech.rvc.setup.working")}</span>
+                </div>
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <Card>

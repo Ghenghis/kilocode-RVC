@@ -892,6 +892,10 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           }
           break
         }
+        case "autoSetupRvc": {
+          void this.handleAutoSetupRvc()
+          break
+        }
         case "requestTimelineSetting":
           this.sendTimelineSetting()
           break
@@ -2262,6 +2266,128 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         debugMode: speech.get<boolean>("debugMode", false),
       },
     })
+  }
+
+  /**
+   * Automated Docker RVC setup: check Docker, scan for a free port (5050-5150),
+   * pull the image, start the container, wait for health, then load voices.
+   * Progress is streamed back to the webview via rvcSetupProgress messages.
+   */
+  private async handleAutoSetupRvc(): Promise<void> {
+    const send = (step: string, detail?: string, opts?: { error?: string; done?: boolean; port?: number; voices?: Array<{ id: string; sizeMB: number }> }) => {
+      this.postMessage({ type: "rvcSetupProgress", step, detail, ...opts })
+    }
+
+    const { exec } = await import("child_process")
+    const net = await import("net")
+
+    const run = (cmd: string): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((resolve, reject) => {
+        exec(cmd, { timeout: 120000 }, (err, stdout, stderr) => {
+          if (err) reject(Object.assign(err, { stderr }))
+          else resolve({ stdout: stdout.toString(), stderr: stderr.toString() })
+        })
+      })
+
+    const isPortFree = (port: number): Promise<boolean> =>
+      new Promise((resolve) => {
+        const srv = net.createServer()
+        srv.once("error", () => resolve(false))
+        srv.once("listening", () => srv.close(() => resolve(true)))
+        srv.listen(port, "127.0.0.1")
+      })
+
+    const waitForHealth = async (port: number, timeoutMs = 60000): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          const resp = await fetch(`http://localhost:${port}/health`)
+          if (resp.ok) return true
+        } catch {}
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+      return false
+    }
+
+    // Step 1: Check Docker is installed and running
+    send("Checking Docker…")
+    try {
+      await run("docker info")
+    } catch {
+      send("Docker check failed", "Docker is not installed or not running. Install Docker Desktop and try again.", { error: "Docker unavailable" })
+      return
+    }
+
+    // Step 2: Find a free port in range 5050-5150
+    send("Finding available port…")
+    let port: number | undefined
+    for (let p = 5050; p <= 5150; p++) {
+      if (await isPortFree(p)) { port = p; break }
+    }
+    if (!port) {
+      send("No free port found", "All ports 5050-5150 are in use.", { error: "No free port" })
+      return
+    }
+    send("Port found", `Using port ${port}`)
+
+    // Step 3: Pull Docker image (try GHCR first, fall back to Docker Hub)
+    const IMAGE_GHCR = "ghcr.io/ghenghis/kilocode-rvc:latest"
+    const IMAGE_HUB = "ghenghis/kilocode-rvc:latest"
+    let imageToUse = IMAGE_GHCR
+
+    send("Pulling Docker image…", IMAGE_GHCR)
+    try {
+      await run(`docker pull ${IMAGE_GHCR}`)
+    } catch {
+      send("Trying Docker Hub fallback…", IMAGE_HUB)
+      try {
+        await run(`docker pull ${IMAGE_HUB}`)
+        imageToUse = IMAGE_HUB
+      } catch {
+        send("Image pull failed", "Could not pull from GHCR or Docker Hub. Check your internet connection.", { error: "Pull failed" })
+        return
+      }
+    }
+
+    // Step 4: Remove any stale container with the same port, then start a new one
+    const containerName = `kilocode-rvc-${port}`
+    send("Starting container…", containerName)
+    try {
+      await run(`docker rm -f ${containerName}`).catch(() => {/* ignore if not exists */})
+      await run(`docker run -d -p ${port}:5050 --name ${containerName} ${imageToUse}`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      send("Container start failed", msg, { error: "Start failed" })
+      return
+    }
+
+    // Step 5: Wait for health endpoint
+    send("Waiting for server to start…", "This can take up to 60 seconds")
+    const healthy = await waitForHealth(port, 90000)
+    if (!healthy) {
+      send("Server did not start in time", `Container ${containerName} may have crashed. Check: docker logs ${containerName}`, { error: "Timeout" })
+      return
+    }
+
+    // Step 6: Fetch voice list
+    send("Loading voice models…")
+    let voices: Array<{ id: string; sizeMB: number }> = []
+    try {
+      const resp = await fetch(`http://localhost:${port}/voices`)
+      if (resp.ok) {
+        const raw = await resp.json()
+        voices = Array.isArray(raw) ? raw : []
+      }
+    } catch {
+      // Non-fatal — setup succeeded, voices just unavailable yet
+    }
+
+    // Step 7: Persist the port in settings so the rest of the UI uses it
+    await vscode.workspace
+      .getConfiguration("kilo-code.new.speech")
+      .update("rvc.dockerPort", port, vscode.ConfigurationTarget.Global)
+
+    send("Setup complete!", `RVC server running on port ${port} with ${voices.length} voice(s)`, { done: true, port, voices })
   }
 
   private sendTimelineSetting(): void {
