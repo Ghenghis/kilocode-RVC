@@ -1396,7 +1396,8 @@ export interface SpeechSettingsLoadedMessage {
     autoSpeak: boolean
     provider: "rvc" | "azure" | "browser"
     volume: number
-    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
+    interactionMode: "silent" | "assist" | "handsfree"
+    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number; modelServerUrl: string }
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
     debugMode: boolean
@@ -1522,6 +1523,7 @@ export type ExtensionMessage =
   | VoiceStudioStateMessage
   | DiskUsageMessage
   | RvcSetupProgressMessage
+  | DebugModeEnabledMessage
 
 // ============================================
 // Messages FROM webview TO extension
@@ -1889,6 +1891,15 @@ export interface RvcSetupProgressMessage {
   done?: boolean
   port?: number
   voices?: Array<{ id: string; sizeMB: number }>
+}
+
+/**
+ * Sent extension → webview when debug mode is enabled mid-session.
+ * Causes the webview to activate the console bridge and re-emit its initialization
+ * state so the debug log gets full E2E coverage without requiring a VS Code restart.
+ */
+export interface DebugModeEnabledMessage {
+  type: "debugModeEnabled"
 }
 
 export interface FetchVoiceLibraryMessage {

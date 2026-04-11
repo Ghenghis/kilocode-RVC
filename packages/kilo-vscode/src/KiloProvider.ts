@@ -201,6 +201,19 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
     this.debugHook = hook
   }
 
+  /**
+   * Called by extension.ts when debug mode is enabled mid-session.
+   * Posts "debugModeEnabled" to the webview so it:
+   *   1. Activates the always-present console bridge (window.__kiloEnableDebugConsole)
+   *   2. Re-emits its initialization state (webviewReady + key requests) for full debug capture.
+   * Safe to call at any time — silently ignored when webview is not yet ready.
+   */
+  public requestDebugStateSync(): void {
+    if (this.webview && this.isWebviewReady) {
+      this.postMessage({ type: "debugModeEnabled" })
+    }
+  }
+
   /** Handler for "Continue in Worktree" — set by extension.ts to delegate to AgentManagerProvider. */
   private continueInWorktreeHandler:
     | ((sessionId: string, progress: (status: string, detail?: string, error?: string) => void) => Promise<void>)
@@ -2253,6 +2266,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         autoSpeak: speech.get<boolean>("autoSpeak", false),
         provider: speech.get<string>("provider", "browser") as "rvc" | "azure" | "browser",
         volume: speech.get<number>("volume", 80),
+        interactionMode: speech.get<string>("interactionMode", "silent") as "silent" | "assist" | "handsfree",
         rvc: {
           voiceId: speech.get<string>("rvc.voiceId", ""),
           dockerPort: speech.get<number>("rvc.dockerPort", 5050),

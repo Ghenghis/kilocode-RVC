@@ -1,6 +1,7 @@
 import * as vscode from "vscode"
 import * as crypto from "crypto"
 import * as https from "https"
+import { DebugCollector } from "./services/debug/DebugCollector"
 import * as http from "http"
 import * as fs from "fs"
 import * as path from "path"
@@ -60,6 +61,19 @@ export class VoiceStudioProvider implements vscode.Disposable {
   private readonly downloads = new Map<string, DownloadTracker>()
   private readonly log: vscode.LogOutputChannel
 
+  /** E2E debug hooks — set by extension.ts when kilo-code.debugMode is active. */
+  private debugHook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null = null
+
+  /** Attach or remove the debug interceptor. Called by extension.ts on debug mode toggle. */
+  public setDebugHook(hook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null): void {
+    this.debugHook = hook
+  }
+
+  /** Returns the singleton instance (if one exists) so extension.ts can attach debug hooks. */
+  public static getInstance(): VoiceStudioProvider | undefined {
+    return VoiceStudioProvider.instance
+  }
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly context: vscode.ExtensionContext,
@@ -93,6 +107,10 @@ export class VoiceStudioProvider implements vscode.Disposable {
     )
 
     inst.wirePanel(panel)
+    // Auto-attach debug hook when panel opens (failsafe — no need to restart VS Code)
+    if (DebugCollector.getInstance().isEnabled()) {
+      inst.setDebugHook(DebugCollector.getInstance().makeProviderHook("VoiceStudioProvider"))
+    }
   }
 
   /** Called by the panel serializer to restore a panel after VS Code restarts. */
@@ -101,6 +119,10 @@ export class VoiceStudioProvider implements vscode.Disposable {
       VoiceStudioProvider.instance = new VoiceStudioProvider(extensionUri, context)
     }
     VoiceStudioProvider.instance.wirePanel(panel)
+    // Auto-attach debug hook on panel restore
+    if (DebugCollector.getInstance().isEnabled()) {
+      VoiceStudioProvider.instance.setDebugHook(DebugCollector.getInstance().makeProviderHook("VoiceStudioProvider"))
+    }
   }
 
   /** Attach this provider instance to an existing webview panel (e.g. for tests or re-hydration). */
@@ -210,6 +232,16 @@ export class VoiceStudioProvider implements vscode.Disposable {
 </head>
 <body>
   <div id="root"></div>
+  <script nonce="${nonce}">(function(){
+  var _en=${vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false)};
+  var _buf=[];
+  var _o={log:console.log,warn:console.warn,error:console.error,debug:console.debug,info:console.info};
+  ['log','warn','error','debug','info'].forEach(function(l){console[l]=function(){_o[l].apply(console,arguments);if(!_en)return;var a=Array.prototype.slice.call(arguments).map(function(x){try{return typeof x==='string'?x:JSON.stringify(x);}catch(e){return String(x);}});_buf.push({level:l,args:a});};});
+  window.__kiloEnableDebugConsole=function(){_en=true;_fl();};
+  window.__kiloDisableDebugConsole=function(){_en=false;_buf=[];};
+  function _fl(){var api=window.__kiloVsCode;if(api&&_buf.length){var e=_buf.splice(0);e.forEach(function(m){try{api.postMessage({type:'kiloDebugConsole',level:m.level,args:m.args});}catch(_){}});}if(_en){if(!api){setTimeout(_fl,200);}else if(_buf.length){setTimeout(_fl,50);}}}
+  if(_en)setTimeout(_fl,200);
+})();</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`
@@ -218,6 +250,8 @@ export class VoiceStudioProvider implements vscode.Disposable {
   // -- Message handling -----------------------------------------------------
 
   private async onMessage(msg: Record<string, unknown>): Promise<void> {
+    // E2E debug capture — record every incoming webview message
+    this.debugHook?.in?.(msg)
     const type = msg.type as string
     this.log.info(`[Message] Received: ${type}`)
 
@@ -264,6 +298,13 @@ export class VoiceStudioProvider implements vscode.Disposable {
       case "refreshStoreCatalog":
         await this.handleRefreshStoreCatalog()
         break
+      case "kiloDebugConsole": {
+        // Console bridge message from the VoiceStudio webview — route to DebugCollector
+        const { level, args } = msg as { level?: string; args?: unknown[] }
+        const { DebugCollector } = await import("./services/debug/DebugCollector")
+        DebugCollector.getInstance().recordConsole("VoiceStudioProvider-webview", level ?? "log", args ?? [])
+        break
+      }
       default:
         this.log.warn(`[Message] Unknown message type: ${type}`)
     }
@@ -755,6 +796,8 @@ export class VoiceStudioProvider implements vscode.Disposable {
   // -- Utility: post to webview ---------------------------------------------
 
   private post(message: Record<string, unknown>): void {
+    // E2E debug capture — record every outgoing extension message
+    this.debugHook?.out?.(message)
     if (this.panel?.webview) {
       void this.panel.webview.postMessage(message)
     }

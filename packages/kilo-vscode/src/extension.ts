@@ -50,11 +50,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("kilo-code.debugMode")) applyDebugMode()
-    }),
-  )
   // ──────────────────────────────────────────────────────────────────────────
 
   // Create browser automation service (manages Playwright MCP registration)
@@ -71,6 +66,12 @@ export function activate(context: vscode.ExtensionContext) {
         telemetry.configure(config.baseUrl, config.password)
       }
       AutocompleteServiceManager.getInstance()?.load()
+      // Self-healing: re-attach CLI/SSE debug hooks on every backend reconnect so
+      // a server restart never silently drops debug capture.
+      if (debugCollector.isEnabled()) {
+        connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+        connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
+      }
     }
   })
 
@@ -95,10 +96,26 @@ export function activate(context: vscode.ExtensionContext) {
   }
   attachProviderDebugHook(provider, "KiloProvider[sidebar]")
 
+  // Unified debug mode change handler — one listener does everything: enables/disables
+  // the collector, re-attaches CLI/SSE/provider hooks, syncs tab providers and Voice Studio,
+  // and forces the webview to re-emit its state so mid-session debug enable captures full coverage.
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kilo-code.debugMode")) {
+        applyDebugMode()
         attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+        for (const [, p] of tabPanels) {
+          p.setDebugHook(debugCollector.isEnabled() ? debugCollector.makeProviderHook("KiloProvider[tab]") : null)
+        }
+        // Sync VoiceStudioProvider debug hook (if panel is currently open)
+        VoiceStudioProvider.getInstance()?.setDebugHook(
+          debugCollector.isEnabled() ? debugCollector.makeProviderHook("VoiceStudioProvider") : null,
+        )
+        // When enabling: force the webview to re-emit its state so the debug log gets
+        // full coverage even if debug mode was toggled after the webview had already loaded.
+        if (debugCollector.isEnabled()) {
+          provider.requestDebugStateSync()
+        }
       }
     }),
   )
@@ -467,11 +484,26 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   )
 
-  // Apply debug mode at startup (picks up setting if it was already true when VS Code launched)
+  // Apply debug mode at startup — always attach provider hook unconditionally.
+  // attachProviderDebugHook sets hook to null when disabled, so the conditional is
+  // unnecessary and was causing a timing gap when the setting was already true at launch.
   applyDebugMode()
-  if (debugCollector.isEnabled()) {
-    attachProviderDebugHook(provider, "KiloProvider[sidebar]")
-  }
+  attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+
+  // Self-healing watchdog: every 30s re-verifies ALL debug hooks are attached.
+  // Covers sidebar, all tab panels, Voice Studio, CLI, and SSE — nothing escapes.
+  const debugWatchdog = setInterval(() => {
+    if (debugCollector.isEnabled()) {
+      connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+      connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
+      attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+      for (const [, p] of tabPanels) {
+        p.setDebugHook(debugCollector.makeProviderHook("KiloProvider[tab]"))
+      }
+      VoiceStudioProvider.getInstance()?.setDebugHook(debugCollector.makeProviderHook("VoiceStudioProvider"))
+    }
+  }, 30_000)
+  context.subscriptions.push({ dispose: () => clearInterval(debugWatchdog) })
 
   // Dispose services when extension deactivates (kills the server)
   context.subscriptions.push({
@@ -520,12 +552,26 @@ async function openKiloInNewTab(
     agentManagerProvider.continueFromSidebar(sessionId, progress),
   )
   tabProvider.setDiffVirtualProvider(diffVirtualProvider)
-  // Attach debug hook if debugger is active
-  if (DebugCollector.getInstance().isEnabled()) {
-    tabProvider.setDebugHook(DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]"))
-  }
+  // Attach debug hook — always (no conditional; setDebugHook with null is a safe no-op)
+  tabProvider.setDebugHook(
+    DebugCollector.getInstance().isEnabled()
+      ? DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]")
+      : null,
+  )
   tabProvider.resolveWebviewPanel(panel)
   tabPanels.set(panel, tabProvider)
+
+  // Keep tab provider debug hook in sync when debug mode is toggled while this tab is open
+  const unsubTabDebug = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration("kilo-code.debugMode")) {
+      tabProvider.setDebugHook(
+        DebugCollector.getInstance().isEnabled()
+          ? DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]")
+          : null,
+      )
+    }
+  })
+  context.subscriptions.push(unsubTabDebug)
 
   // Wait for the new panel to become active before locking the editor group.
   // This avoids the race where VS Code hasn't switched focus yet.
@@ -537,6 +583,7 @@ async function openKiloInNewTab(
       console.log("[Kilo New] Tab panel disposed")
       tabPanels.delete(panel)
       tabProvider.dispose()
+      unsubTabDebug.dispose()
     },
     null,
     context.subscriptions,

@@ -18,9 +18,11 @@ interface SpeechSettings {
   provider: SpeechProvider
   volume: number
   interactionMode: "silent" | "assist" | "handsfree"
-  rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
+  rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number; modelServerUrl: string }
   azure: { region: string; apiKey: string; voiceId: string }
   browser: { voiceURI: string; rate: number; pitch: number }
+  debugMode: boolean
+  kiloDebugMode: boolean
 }
 
 const DEFAULT_SPEECH: SpeechSettings = {
@@ -29,9 +31,11 @@ const DEFAULT_SPEECH: SpeechSettings = {
   provider: "browser",
   volume: 80,
   interactionMode: "silent",
-  rvc: { voiceId: "", dockerPort: 5050, edgeVoice: "en-US-AriaNeural", pitchShift: 0 },
+  rvc: { voiceId: "", dockerPort: 5050, edgeVoice: "en-US-AriaNeural", pitchShift: 0, modelServerUrl: "https://voice.daveai.tech" },
   azure: { region: "eastus", apiKey: "", voiceId: "en-US-JennyNeural" },
   browser: { voiceURI: "", rate: 1.0, pitch: 1.0 },
+  debugMode: false,
+  kiloDebugMode: false,
 }
 
 interface ProviderOption {
