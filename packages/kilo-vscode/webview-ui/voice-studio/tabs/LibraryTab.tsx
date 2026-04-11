@@ -34,7 +34,7 @@ export const LibraryTab: Component<LibraryTabProps> = (props) => {
 
     if (tab === "recent") {
       return allVoices
-        .filter((v) => v.lastUsed != null)
+        .filter((v) => v.lastUsed !== null && v.lastUsed !== undefined)
         .sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0))
     }
 
