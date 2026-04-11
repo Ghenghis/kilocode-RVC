@@ -204,8 +204,11 @@ export function getFilterCounts(
 	query: string,
 	currentFilters: FilterState,
 ): Record<string, number> {
-	// First apply the search query to narrow down
-	const searchResults = fuzzySearchVoices(voices, query)
+	// Apply search query. If search returns nothing (dead-end query), fall back to
+	// the full catalog so filter counts reflect what's actually available — this
+	// prevents the "All (0) / Male (0) / Female (0)" collapse that traps users.
+	const searched = fuzzySearchVoices(voices, query)
+	const searchResults = searched.length > 0 || query === "" ? searched : voices
 
 	const counts: Record<string, number> = {}
 

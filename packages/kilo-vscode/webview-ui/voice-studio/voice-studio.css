@@ -690,6 +690,26 @@
   max-width: 320px;
 }
 
+.vs-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vs-empty-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+}
+
+.vs-empty-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
 .vs-loading {
   display: flex;
   align-items: center;

@@ -507,11 +507,32 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
                 </svg>
               </div>
               <div class="vs-empty-title">No voices found</div>
-              <div class="vs-empty-desc">
-                {searchQuery() || filters().gender || filters().accents.length
-                  ? "Try adjusting your search or filters."
-                  : "Your voice library is empty. Visit the Store tab to download voices."}
-              </div>
+              <Show
+                when={searchQuery() || filters().gender || filters().accents.length || filters().moods.length}
+                fallback={
+                  <div class="vs-empty-desc">
+                    Your voice library is empty. Visit the Store tab to download voices.
+                  </div>
+                }
+              >
+                <div class="vs-empty-desc">No voices match your search or filters.</div>
+                <div class="vs-empty-actions">
+                  <Show when={searchQuery()}>
+                    <button class="vs-empty-btn" type="button" onClick={() => setSearchQuery("")}>
+                      Clear search
+                    </button>
+                  </Show>
+                  <Show when={filters().gender || filters().accents.length || filters().moods.length}>
+                    <button
+                      class="vs-empty-btn"
+                      type="button"
+                      onClick={() => setFilters({ ...DEFAULT_FILTERS })}
+                    >
+                      Clear filters
+                    </button>
+                  </Show>
+                </div>
+              </Show>
             </div>
           </Show>
 
