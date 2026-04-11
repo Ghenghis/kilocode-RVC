@@ -103,6 +103,11 @@ export class VoiceStudioProvider implements vscode.Disposable {
     VoiceStudioProvider.instance.wirePanel(panel)
   }
 
+  /** Attach this provider instance to an existing webview panel (e.g. for tests or re-hydration). */
+  public deserializePanel(panel: vscode.WebviewPanel): void {
+    this.wirePanel(panel)
+  }
+
   // -- Panel wiring ---------------------------------------------------------
 
   private wirePanel(panel: vscode.WebviewPanel): void {

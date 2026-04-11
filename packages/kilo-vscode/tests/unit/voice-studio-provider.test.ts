@@ -181,6 +181,9 @@ const origGetConfiguration = vscode.workspace.getConfiguration;
 	return origGetConfiguration()
 }
 
+// Patch workspace.onDidChangeConfiguration so wirePanel doesn't crash in tests
+;(vscode.workspace as any).onDidChangeConfiguration = (_listener: any) => ({ dispose: () => {} })
+
 // ---------------------------------------------------------------------------
 // Provider factory — create an instance and wire up a mock panel
 // ---------------------------------------------------------------------------

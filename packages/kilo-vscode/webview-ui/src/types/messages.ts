@@ -1860,6 +1860,12 @@ export interface SetVoiceStudioDebugMessage {
   enabled: boolean
 }
 
+export interface KiloDebugConsoleMessage {
+  type: "kiloDebugConsole"
+  level: string
+  args: unknown[]
+}
+
 export interface FetchVoiceLibraryMessage {
   type: "fetchVoiceLibrary"
 }
@@ -2598,6 +2604,7 @@ export type WebviewMessage =
   // Voice Studio (webview → extension)
   | OpenVoiceStudioMessage
   | SetVoiceStudioDebugMessage
+  | KiloDebugConsoleMessage
   | FetchVoiceLibraryMessage
   | FetchStoreModelsMessage
   | PreviewStoreVoiceMessage
