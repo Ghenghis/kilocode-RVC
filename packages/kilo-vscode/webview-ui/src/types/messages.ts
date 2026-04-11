@@ -1400,6 +1400,8 @@ export interface SpeechSettingsLoadedMessage {
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
     debugMode: boolean
+    /** Global E2E DebugCollector (kilo-code.debugMode VS Code setting) */
+    kiloDebugMode: boolean
   }
 }
 
@@ -1858,6 +1860,12 @@ export interface OpenVoiceStudioMessage {
 
 export interface SetVoiceStudioDebugMessage {
   type: "setVoiceStudioDebug"
+  enabled: boolean
+}
+
+/** Toggle the global E2E DebugCollector (kilo-code.debugMode VS Code setting) */
+export interface SetKiloDebugModeMessage {
+  type: "setKiloDebugMode"
   enabled: boolean
 }
 
@@ -2621,6 +2629,7 @@ export type WebviewMessage =
   // Voice Studio (webview → extension)
   | OpenVoiceStudioMessage
   | SetVoiceStudioDebugMessage
+  | SetKiloDebugModeMessage
   | KiloDebugConsoleMessage
   | FetchVoiceLibraryMessage
   | FetchStoreModelsMessage

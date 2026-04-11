@@ -30,13 +30,16 @@ const ExperimentalTab: Component = () => {
   // Voice Studio debug mode is stored in VS Code workspace config, not in the
   // CLI config, so we use a local signal to avoid the CLI round-trip resetting it.
   const [vsDebug, setVsDebug] = createSignal(false)
+  // E2E DebugCollector — kilo-code.debugMode VS Code setting
+  const [kiloDebug, setKiloDebug] = createSignal(false)
 
   onMount(() => {
-    // Request current speech settings to get the persisted debugMode value
+    // Request current speech settings to get the persisted debugMode values
     vscode.postMessage({ type: "requestSpeechSettings" })
     const unsub = vscode.onMessage((msg: ExtensionMessage) => {
       if (msg.type === "speechSettingsLoaded") {
         setVsDebug(msg.settings.debugMode)
+        setKiloDebug(msg.settings.kiloDebugMode)
       }
     })
     onCleanup(unsub)
@@ -165,6 +168,23 @@ const ExperimentalTab: Component = () => {
             hideLabel
           >
             {language.t("settings.experimental.voiceStudioDebug.title")}
+          </Switch>
+        </SettingsRow>
+
+        {/* E2E Debug Mode — captures all webview↔extension messages, CLI I/O, and SSE events to ~/.kilo-debug/ */}
+        <SettingsRow
+          title={language.t("settings.experimental.kiloDebugMode.title")}
+          description={language.t("settings.experimental.kiloDebugMode.description")}
+        >
+          <Switch
+            checked={kiloDebug()}
+            onChange={(checked) => {
+              setKiloDebug(checked)
+              vscode.postMessage({ type: "setKiloDebugMode", enabled: checked })
+            }}
+            hideLabel
+          >
+            {language.t("settings.experimental.kiloDebugMode.title")}
           </Switch>
         </SettingsRow>
 

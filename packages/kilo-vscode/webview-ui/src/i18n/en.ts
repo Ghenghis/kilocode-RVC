@@ -1253,6 +1253,8 @@ export const dict = {
   "settings.experimental.continueOnDeny.description": "Continue the agent loop when a permission is denied",
   "settings.experimental.voiceStudioDebug.title": "Voice Studio Debug Mode",
   "settings.experimental.voiceStudioDebug.description": "Show debug panel in Voice Studio with live message log, state inspector, and feature test buttons",
+  "settings.experimental.kiloDebugMode.title": "Debug Mode (E2E)",
+  "settings.experimental.kiloDebugMode.description": "Capture all webview↔extension messages, CLI I/O, and SSE events to ~/.kilo-debug/ for AI-assisted E2E debugging.",
   "settings.experimental.mcpTimeout.title": "MCP Timeout (ms)",
   "settings.experimental.mcpTimeout.description": "Timeout for MCP server requests in milliseconds",
   "settings.experimental.toolToggles": "Tool Toggles",

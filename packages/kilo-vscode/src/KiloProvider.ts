@@ -854,6 +854,13 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
             .update("debugMode", enabled, vscode.ConfigurationTarget.Global)
           break
         }
+        case "setKiloDebugMode": {
+          const enabled = !!(message as { enabled?: boolean }).enabled
+          await vscode.workspace
+            .getConfiguration()
+            .update("kilo-code.debugMode", enabled, vscode.ConfigurationTarget.Global)
+          break
+        }
         case "kiloDebugConsole": {
           // Webview console bridge — forwarded by the console override script injected into the webview HTML
           const { level, args } = message as { level?: string; args?: unknown[] }
@@ -2264,6 +2271,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           pitch: speech.get<number>("browser.pitch", 1.0),
         },
         debugMode: speech.get<boolean>("debugMode", false),
+        kiloDebugMode: vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false),
       },
     })
   }

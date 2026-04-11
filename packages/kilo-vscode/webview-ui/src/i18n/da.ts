@@ -1536,4 +1536,6 @@ export const dict = {
   "settings.speech.voiceStudio.view.list": "List view",
   "settings.experimental.voiceStudioDebug.title": "Voice Studio Debug Mode",
   "settings.experimental.voiceStudioDebug.description": "Show debug panel in Voice Studio with live message log, state inspector, and feature test buttons",
+  "settings.experimental.kiloDebugMode.title": "Debug Mode (E2E)",
+  "settings.experimental.kiloDebugMode.description": "Capture all webview2194extension messages, CLI I/O, and SSE events to ~/.kilo-debug/ for AI-assisted E2E debugging.",
 }
