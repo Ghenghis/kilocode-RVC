@@ -18,8 +18,14 @@ const STARTUP_TIMEOUT_SECONDS = 30
 export class ServerManager {
   private instance: ServerInstance | null = null
   private startupPromise: Promise<ServerInstance> | null = null
+  private debugHook: ((source: "cli-stdout" | "cli-stderr", data: string) => void) | null = null
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  /** Attach or remove the debug hook for CLI I/O capture. */
+  setDebugHook(hook: ((source: "cli-stdout" | "cli-stderr", data: string) => void) | null): void {
+    this.debugHook = hook
+  }
 
   /**
    * Get or start the server instance
@@ -94,6 +100,7 @@ export class ServerManager {
       serverProcess.stdout?.on("data", (data: Buffer) => {
         const output = data.toString()
         console.log("[Kilo New] ServerManager: 📥 CLI Server stdout:", output)
+        this.debugHook?.("cli-stdout", output)
 
         const port = parseServerPort(output)
         if (port !== null && !resolved) {
@@ -106,6 +113,7 @@ export class ServerManager {
       serverProcess.stderr?.on("data", (data: Buffer) => {
         const errorOutput = data.toString()
         console.error("[Kilo New] ServerManager: ⚠️ CLI Server stderr:", errorOutput)
+        this.debugHook?.("cli-stderr", errorOutput)
         stderrLines.push(errorOutput)
       })
 

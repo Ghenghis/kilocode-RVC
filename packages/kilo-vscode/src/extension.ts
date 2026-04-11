@@ -17,6 +17,7 @@ import { registerCommitMessageService } from "./services/commit-message"
 import { registerCodeActions, registerTerminalActions, KiloCodeActionProvider } from "./services/code-actions"
 import { registerToggleAutoApprove } from "./commands/toggle-auto-approve"
 import { VoiceStudioProvider } from "./VoiceStudioProvider"
+import { DebugCollector } from "./services/debug/DebugCollector"
 
 // Activated via "onStartupFinished" (package.json) so that commands, code actions, keybindings,
 // autocomplete, commit-message generation, and URI deep links all work immediately — without
@@ -29,6 +30,30 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Create shared connection service (one server for all webviews)
   const connectionService = new KiloConnectionService(context)
+
+  // ── E2E Debugger ──────────────────────────────────────────────────────────
+  // Enabled via the "kilo-code.debugMode" VS Code setting.
+  // Captures all webview ↔ extension messages, CLI I/O, and SSE events.
+  // Logs are written to ~/.kilo-debug/ as structured JSONL files.
+  const debugCollector = DebugCollector.getInstance()
+
+  function applyDebugMode(): void {
+    const enabled = vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false)
+    if (enabled && !debugCollector.isEnabled()) {
+      debugCollector.enable(context)
+      connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+    } else if (!enabled && debugCollector.isEnabled()) {
+      debugCollector.disable()
+      connectionService.setCliDebugHook(null)
+    }
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-code.debugMode")) applyDebugMode()
+    }),
+  )
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Create browser automation service (manages Playwright MCP registration)
   const browserAutomationService = new BrowserAutomationService(connectionService)
@@ -61,6 +86,20 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Create the provider with shared service
   const provider = new KiloProvider(context.extensionUri, connectionService, context)
+
+  // Wire debug hook for the sidebar provider (and re-apply when debug mode toggles)
+  function attachProviderDebugHook(p: KiloProvider, name: string): void {
+    p.setDebugHook(debugCollector.isEnabled() ? debugCollector.makeProviderHook(name) : null)
+  }
+  attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-code.debugMode")) {
+        attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+      }
+    }),
+  )
 
   // Register the webview view provider for the sidebar.
   // retainContextWhenHidden keeps the webview alive when switching to other sidebar panels.
@@ -411,6 +450,27 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   )
 
+  // Register E2E debug log command — opens the JSONL log in a VS Code editor so
+  // developers and AI agents can inspect all captured messages.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.openDebugLog", async () => {
+      const logFile = debugCollector.getLogFile()
+      if (!logFile) {
+        void vscode.window.showWarningMessage(
+          "KiloCode Debug: no log file yet. Enable kilo-code.debugMode first.",
+        )
+        return
+      }
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(logFile))
+    }),
+  )
+
+  // Apply debug mode at startup (picks up setting if it was already true when VS Code launched)
+  applyDebugMode()
+  if (debugCollector.isEnabled()) {
+    attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+  }
+
   // Dispose services when extension deactivates (kills the server)
   context.subscriptions.push({
     dispose: () => {
@@ -458,6 +518,10 @@ async function openKiloInNewTab(
     agentManagerProvider.continueFromSidebar(sessionId, progress),
   )
   tabProvider.setDiffVirtualProvider(diffVirtualProvider)
+  // Attach debug hook if debugger is active
+  if (DebugCollector.getInstance().isEnabled()) {
+    tabProvider.setDebugHook(DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]"))
+  }
   tabProvider.resolveWebviewPanel(panel)
   tabPanels.set(panel, tabProvider)
 

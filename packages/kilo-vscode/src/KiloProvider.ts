@@ -193,6 +193,14 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
    *  Return null to consume the message, or return a (possibly transformed) message. */
   private onBeforeMessage: ((msg: Record<string, unknown>) => Promise<Record<string, unknown> | null>) | null = null
 
+  /** Optional debug hooks called for every message in/out — set by DebugCollector when debug mode is active. */
+  private debugHook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null = null
+
+  /** Attach or remove the debug interceptor (called by extension.ts when kilo-code.debugMode changes). */
+  public setDebugHook(hook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null): void {
+    this.debugHook = hook
+  }
+
   /** Handler for "Continue in Worktree" — set by extension.ts to delegate to AgentManagerProvider. */
   private continueInWorktreeHandler:
     | ((sessionId: string, progress: (status: string, detail?: string, error?: string) => void) => Promise<void>)
@@ -482,6 +490,9 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   private setupWebviewMessageHandler(webview: vscode.Webview): void {
     this.webviewMessageDisposable?.dispose()
     this.webviewMessageDisposable = webview.onDidReceiveMessage(async (message) => {
+      // Debug hook — record every incoming message
+      this.debugHook?.in?.(message as Record<string, unknown>)
+
       // Run interceptor if attached (e.g., AgentManagerProvider worktree logic)
       if (this.onBeforeMessage) {
         try {
@@ -841,6 +852,13 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           await vscode.workspace
             .getConfiguration("kilo-code.new.speech")
             .update("debugMode", enabled, vscode.ConfigurationTarget.Global)
+          break
+        }
+        case "kiloDebugConsole": {
+          // Webview console bridge — forwarded by the console override script injected into the webview HTML
+          const { level, args } = message as { level?: string; args?: unknown[] }
+          const { DebugCollector } = await import("./services/debug/DebugCollector")
+          DebugCollector.getInstance().recordConsole("KiloProvider-webview", level ?? "log", args ?? [])
           break
         }
         case "downloadRvcModel": {
@@ -3018,6 +3036,9 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   }
   /** Post a message to the webview. Public so toolbar button commands can send messages. */
   public postMessage(message: unknown): void {
+    // Debug hook — record every outgoing message
+    this.debugHook?.out?.(message)
+
     if (!this.webview) {
       const type =
         typeof message === "object" &&
@@ -3231,6 +3252,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
+    const debugMode = vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false)
     return buildWebviewHtml(webview, {
       scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
       styleUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.css")),
@@ -3238,6 +3260,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
       title: "Kilo Code",
       port: this.connectionService.getServerInfo()?.port,
       extraStyles: `.container { height: 100%; display: flex; flex-direction: column; height: 100vh; border-right: 1px solid var(--border-weak-base); }`,
+      consoleBridge: debugMode,
     })
   }
 

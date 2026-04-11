@@ -346,6 +346,14 @@ export class KiloConnectionService {
   }
 
   /**
+   * Attach or remove the debug hook for CLI stdout/stderr capture.
+   * Delegates to the underlying ServerManager.
+   */
+  setCliDebugHook(hook: ((source: "cli-stdout" | "cli-stderr", data: string) => void) | null): void {
+    this.serverManager.setDebugHook(hook)
+  }
+
+  /**
    * Clean up everything: kill server, close SSE, clear listeners.
    */
   dispose(): void {
