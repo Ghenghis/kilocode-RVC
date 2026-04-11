@@ -405,6 +405,7 @@ export interface ExperimentalConfig {
   primary_tools?: string[]
   continue_loop_on_deny?: boolean
   mcp_timeout?: number
+  voiceStudio_debug?: boolean
 }
 
 export interface Config {
@@ -1854,6 +1855,11 @@ export interface OpenVoiceStudioMessage {
   type: "openVoiceStudio"
 }
 
+export interface SetVoiceStudioDebugMessage {
+  type: "setVoiceStudioDebug"
+  enabled: boolean
+}
+
 export interface FetchVoiceLibraryMessage {
   type: "fetchVoiceLibrary"
 }
@@ -2591,6 +2597,7 @@ export type WebviewMessage =
   | MoveSectionRequest
   // Voice Studio (webview → extension)
   | OpenVoiceStudioMessage
+  | SetVoiceStudioDebugMessage
   | FetchVoiceLibraryMessage
   | FetchStoreModelsMessage
   | PreviewStoreVoiceMessage
