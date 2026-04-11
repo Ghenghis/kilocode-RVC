@@ -37,6 +37,7 @@ export class KiloConnectionService {
 
   private readonly eventListeners: Set<SSEEventListener> = new Set()
   private readonly stateListeners: Set<StateListener> = new Set()
+  private sseDebugHook: ((eventType: string, data: unknown) => void) | null = null
   private readonly notificationDismissListeners: Set<NotificationDismissListener> = new Set()
   private readonly languageChangeListeners: Set<LanguageChangeListener> = new Set()
   private readonly profileChangeListeners: Set<ProfileChangeListener> = new Set()
@@ -354,6 +355,14 @@ export class KiloConnectionService {
   }
 
   /**
+   * Attach or remove the debug hook for SSE events.
+   * Called by extension.ts when debug mode is toggled.
+   */
+  setSseDebugHook(hook: ((eventType: string, data: unknown) => void) | null): void {
+    this.sseDebugHook = hook
+  }
+
+  /**
    * Clean up everything: kill server, close SSE, clear listeners.
    */
   dispose(): void {
@@ -466,8 +475,9 @@ export class KiloConnectionService {
 
     let didConnect = false
 
-    // Wire SSE events → broadcast to all registered listeners
+    // Wire SSE events → broadcast to all registered listeners (and debug hook if enabled)
     this.sseClient.onEvent((event) => {
+      this.sseDebugHook?.(event.type, event)
       for (const listener of this.eventListeners) {
         listener(event)
       }

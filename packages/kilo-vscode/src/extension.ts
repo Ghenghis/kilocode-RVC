@@ -42,9 +42,11 @@ export function activate(context: vscode.ExtensionContext) {
     if (enabled && !debugCollector.isEnabled()) {
       debugCollector.enable(context)
       connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+      connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
     } else if (!enabled && debugCollector.isEnabled()) {
       debugCollector.disable()
       connectionService.setCliDebugHook(null)
+      connectionService.setSseDebugHook(null)
     }
   }
 
