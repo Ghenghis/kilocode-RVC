@@ -836,6 +836,13 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         case "openVoiceStudio":
           vscode.commands.executeCommand("kilo-code.new.openVoiceStudio")
           break
+        case "setVoiceStudioDebug": {
+          const enabled = !!(message as { enabled?: boolean }).enabled
+          await vscode.workspace
+            .getConfiguration("kilo-code.new.speech")
+            .update("debugMode", enabled, vscode.ConfigurationTarget.Global)
+          break
+        }
         case "downloadRvcModel": {
           const { url, name } = message as { url: string; name: string; type: string }
           const config = vscode.workspace.getConfiguration("kilo-code.new.speech")

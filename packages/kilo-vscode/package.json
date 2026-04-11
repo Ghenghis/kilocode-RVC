@@ -831,6 +831,11 @@
           "default": "silent",
           "markdownDescription": "Voice interaction mode: silent (no speech), assist (auto-speak responses), handsfree (full bidirectional voice control)"
         },
+        "kilo-code.new.speech.debugMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Voice Studio debug panel with live message log, state inspector, and feature test buttons"
+        },
         "kilo-code.new.notifications.agent": {
           "type": "boolean",
           "default": true,

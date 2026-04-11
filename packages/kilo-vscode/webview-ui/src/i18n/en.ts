@@ -1246,6 +1246,8 @@ export const dict = {
   "settings.experimental.codebaseSearch.description": "Enable AI-powered natural language search across your codebase",
   "settings.experimental.continueOnDeny.title": "Continue on Deny",
   "settings.experimental.continueOnDeny.description": "Continue the agent loop when a permission is denied",
+  "settings.experimental.voiceStudioDebug.title": "Voice Studio Debug Mode",
+  "settings.experimental.voiceStudioDebug.description": "Show debug panel in Voice Studio with live message log, state inspector, and feature test buttons",
   "settings.experimental.mcpTimeout.title": "MCP Timeout (ms)",
   "settings.experimental.mcpTimeout.description": "Timeout for MCP server requests in milliseconds",
   "settings.experimental.toolToggles": "Tool Toggles",
