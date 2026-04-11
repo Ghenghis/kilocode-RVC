@@ -169,7 +169,7 @@ const SpeechTab: Component = () => {
   // Listen for settings from extension
   const unsubscribe = vscode.onMessage((message: ExtensionMessage) => {
     if (message.type === "speechSettingsLoaded") {
-      setSettings(message.settings as SpeechSettings)
+      setSettings(message.settings as unknown as SpeechSettings)
     }
   })
   onCleanup(() => {

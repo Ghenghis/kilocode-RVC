@@ -1,4 +1,4 @@
-import { Component, For, Show, createMemo } from "solid-js"
+import { Component, For, Show, createMemo, createSignal, onMount, onCleanup } from "solid-js"
 import { Switch } from "@kilocode/kilo-ui/switch"
 import { Select } from "@kilocode/kilo-ui/select"
 import { TextField } from "@kilocode/kilo-ui/text-field"
@@ -6,6 +6,7 @@ import { Card } from "@kilocode/kilo-ui/card"
 import { useConfig } from "../../context/config"
 import { useLanguage } from "../../context/language"
 import { useVSCode } from "../../context/vscode"
+import type { ExtensionMessage } from "../../types/messages"
 import SettingsRow from "./SettingsRow"
 
 interface ShareOption {
@@ -25,6 +26,21 @@ const ExperimentalTab: Component = () => {
   const vscode = useVSCode()
 
   const experimental = createMemo(() => config().experimental ?? {})
+
+  // Voice Studio debug mode is stored in VS Code workspace config, not in the
+  // CLI config, so we use a local signal to avoid the CLI round-trip resetting it.
+  const [vsDebug, setVsDebug] = createSignal(false)
+
+  onMount(() => {
+    // Request current speech settings to get the persisted debugMode value
+    vscode.postMessage({ type: "requestSpeechSettings" })
+    const unsub = vscode.onMessage((msg: ExtensionMessage) => {
+      if (msg.type === "speechSettingsLoaded") {
+        setVsDebug(msg.settings.debugMode)
+      }
+    })
+    onCleanup(unsub)
+  })
 
   const updateExperimental = (key: string, value: unknown) => {
     updateConfig({
@@ -135,15 +151,15 @@ const ExperimentalTab: Component = () => {
           </Switch>
         </SettingsRow>
 
-        {/* Voice Studio Debug Mode */}
+        {/* Voice Studio Debug Mode — stored in VS Code workspace config, not CLI config */}
         <SettingsRow
           title={language.t("settings.experimental.voiceStudioDebug.title")}
           description={language.t("settings.experimental.voiceStudioDebug.description")}
         >
           <Switch
-            checked={experimental().voiceStudio_debug ?? false}
+            checked={vsDebug()}
             onChange={(checked) => {
-              updateExperimental("voiceStudio_debug", checked)
+              setVsDebug(checked)
               vscode.postMessage({ type: "setVoiceStudioDebug", enabled: checked })
             }}
             hideLabel

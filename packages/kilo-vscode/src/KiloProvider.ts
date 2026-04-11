@@ -2241,6 +2241,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           rate: speech.get<number>("browser.rate", 1.0),
           pitch: speech.get<number>("browser.pitch", 1.0),
         },
+        debugMode: speech.get<boolean>("debugMode", false),
       },
     })
   }

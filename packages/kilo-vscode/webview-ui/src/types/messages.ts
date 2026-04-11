@@ -405,7 +405,6 @@ export interface ExperimentalConfig {
   primary_tools?: string[]
   continue_loop_on_deny?: boolean
   mcp_timeout?: number
-  voiceStudio_debug?: boolean
 }
 
 export interface Config {
@@ -1400,6 +1399,7 @@ export interface SpeechSettingsLoadedMessage {
     rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
+    debugMode: boolean
   }
 }
 
