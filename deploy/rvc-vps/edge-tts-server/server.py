@@ -371,113 +371,100 @@ async def rebuild_catalog():
     import subprocess
     import time
 
-    models_dir = RVC_BASE / "models"
+    models_base = RVC_BASE / "models"
     metadata_file = RVC_BASE / "catalog" / "model-metadata.json"
-    builder_script = RVC_BASE / "catalog" / "build-catalog.py"
 
-    if builder_script.exists():
-        # Use the full catalog builder with metadata overrides
-        cmd = [
-            "python3", str(builder_script),
-            "--models-dir", str(models_dir),
-            "--output", str(CATALOG_FILE),
-        ]
-        if metadata_file.exists():
-            cmd.extend(["--metadata", str(metadata_file)])
+    # Scan for voice directories — check both top-level and rvc-voices/ subdirectory
+    voice_dirs: list[Path] = []
+    rvc_voices_dir = models_base / "rvc-voices"
+    if rvc_voices_dir.exists() and rvc_voices_dir.is_dir():
+        voice_dirs = [d for d in sorted(rvc_voices_dir.iterdir()) if d.is_dir()]
+    if not voice_dirs and models_base.exists():
+        voice_dirs = [d for d in sorted(models_base.iterdir()) if d.is_dir()]
 
+    if not voice_dirs:
+        raise HTTPException(status_code=404, detail="No voice directories found")
+
+    metadata_overrides: dict = {}
+    if metadata_file.exists():
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            if result.returncode != 0:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Catalog build failed: {result.stderr[:500]}",
-                )
-        except subprocess.TimeoutExpired:
-            raise HTTPException(status_code=504, detail="Catalog build timed out")
-    else:
-        # Lightweight scan — enumerate model files and write minimal catalog
-        if not models_dir.exists():
-            raise HTTPException(status_code=404, detail="Models directory not found")
+            with open(metadata_file, "r", encoding="utf-8") as mf:
+                metadata_overrides = json.load(mf)
+        except Exception:
+            pass
 
-        metadata_overrides: dict = {}
-        if metadata_file.exists():
-            try:
-                with open(metadata_file, "r", encoding="utf-8") as mf:
-                    metadata_overrides = json.load(mf)
-            except Exception:
-                pass
+    voices = []
 
-        voices = []
-        for entry in sorted(models_dir.iterdir()):
-            if not entry.is_dir():
-                # Check for loose model files
-                if entry.suffix.lower() in MODEL_EXTENSIONS:
-                    voice_id = entry.stem
-                    override = metadata_overrides.get(voice_id, {})
-                    voices.append({
-                        "id": voice_id,
-                        "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
-                        "description": override.get("description", ""),
-                        "gender": override.get("gender", "neutral"),
-                        "accent": override.get("accent", "en-US"),
-                        "accentLabel": override.get("accentLabel", "American English"),
-                        "style": override.get("style", "natural"),
-                        "quality": override.get("quality", 3),
-                        "sampleRate": override.get("sampleRate", 40000),
-                        "fileSize": entry.stat().st_size,
-                        "tags": override.get("tags", []),
-                        "downloadUrl": f"/models/{entry.name}",
-                        "heroClipUrl": None,
-                        "category": "uncategorized",
-                        "addedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry.stat().st_mtime)),
-                    })
-                continue
+    # Also scan for loose model files in models_base
+    if models_base.exists():
+        for entry in sorted(models_base.iterdir()):
+            if not entry.is_dir() and entry.suffix.lower() in MODEL_EXTENSIONS:
+                voice_id = entry.stem
+                override = metadata_overrides.get(voice_id, {})
+                voices.append({
+                    "id": voice_id,
+                    "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
+                    "description": override.get("description", ""),
+                    "gender": override.get("gender", "neutral"),
+                    "accent": override.get("accent", "en-US"),
+                    "accentLabel": override.get("accentLabel", "American English"),
+                    "style": override.get("style", "natural"),
+                    "quality": override.get("quality", 3),
+                    "sampleRate": override.get("sampleRate", 40000),
+                    "fileSize": entry.stat().st_size,
+                    "tags": override.get("tags", []),
+                    "downloadUrl": f"/models/{entry.name}",
+                    "heroClipUrl": None,
+                    "category": "uncategorized",
+                    "addedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry.stat().st_mtime)),
+                })
 
-            # Directory-based models
-            voice_id = entry.name
-            model_files = [f for f in entry.rglob("*") if f.suffix.lower() in MODEL_EXTENSIONS]
-            if not model_files:
-                continue
+    # Scan voice directories (from rvc-voices/ or top-level)
+    for entry in voice_dirs:
+        voice_id = entry.name
+        model_files = [f for f in entry.rglob("*") if f.suffix.lower() in MODEL_EXTENSIONS]
+        if not model_files:
+            continue
 
-            total_size = sum(f.stat().st_size for f in model_files)
-            override = metadata_overrides.get(voice_id, {})
+        total_size = sum(f.stat().st_size for f in model_files)
+        override = metadata_overrides.get(voice_id, {})
 
-            # Check for preview clip
-            preview_file = PREVIEWS_DIR / f"{voice_id}.mp3"
-            hero_url = f"/preview/{voice_id}.mp3" if preview_file.exists() else None
+        # Check for preview clip
+        preview_file = PREVIEWS_DIR / f"{voice_id}.mp3"
+        hero_url = f"/preview/{voice_id}.mp3" if preview_file.exists() else None
 
-            voices.append({
-                "id": voice_id,
-                "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
-                "description": override.get("description", ""),
-                "gender": override.get("gender", "neutral"),
-                "accent": override.get("accent", "en-US"),
-                "accentLabel": override.get("accentLabel", "American English"),
-                "style": override.get("style", "natural"),
-                "quality": override.get("quality", 3),
-                "sampleRate": override.get("sampleRate", 40000),
-                "fileSize": total_size,
-                "tags": override.get("tags", []),
-                "downloadUrl": f"/models/{voice_id}",
-                "heroClipUrl": hero_url,
-                "category": override.get("category", "uncategorized"),
-                "addedAt": time.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ",
-                    time.gmtime(max(f.stat().st_mtime for f in model_files)),
-                ),
-            })
+        voices.append({
+            "id": voice_id,
+            "name": override.get("name", voice_id.replace("-", " ").replace("_", " ").title()),
+            "description": override.get("description", ""),
+            "gender": override.get("gender", "neutral"),
+            "accent": override.get("accent", "en-US"),
+            "accentLabel": override.get("accentLabel", "American English"),
+            "style": override.get("style", "natural"),
+            "quality": override.get("quality", 3),
+            "sampleRate": override.get("sampleRate", 40000),
+            "fileSize": total_size,
+            "tags": override.get("tags", []),
+            "downloadUrl": f"/models/{voice_id}",
+            "heroClipUrl": hero_url,
+            "category": override.get("category", "uncategorized"),
+            "addedAt": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+                time.gmtime(max(f.stat().st_mtime for f in model_files)),
+            ),
+        })
 
-        catalog = {
-            "version": 1,
-            "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "totalModels": len(voices),
-            "totalSizeBytes": sum(v["fileSize"] for v in voices),
-            "voices": voices,
-        }
+    catalog = {
+        "version": 1,
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "totalModels": len(voices),
+        "totalSizeBytes": sum(v["fileSize"] for v in voices),
+        "voices": voices,
+    }
 
-        CATALOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(CATALOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(catalog, f, indent=2)
+    CATALOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CATALOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(catalog, f, indent=2)
 
     # Read back the generated catalog
     with open(CATALOG_FILE, "r", encoding="utf-8") as f:

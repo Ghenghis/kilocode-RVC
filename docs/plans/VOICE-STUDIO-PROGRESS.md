@@ -12,15 +12,15 @@
 | Phase 4: Webview UI | ✅ COMPLETE | 11-16 | App + 8 components + 2 tabs + 2 hooks + CSS |
 | Phase 5: SpeechTab Simplify | ✅ COMPLETE | 17 | Stripped model browser, added Studio button + interaction mode |
 | Phase 6: i18n | ✅ COMPLETE | 18 | 99 Voice Studio keys added to en.ts |
-| Phase 7: VPS Deploy | ✅ COMPLETE | 19 | Catalog live (16 voices), 29 previews, refresh endpoint working |
+| Phase 7: VPS Deploy | ✅ COMPLETE | 19 | Catalog live (235 voices), 235 previews, refresh endpoint working |
 | Phase 8: Testing & Audits | ✅ COMPLETE | 20-23 | 48 provider tests + component tests, 3 audits documented |
-| Phase 9: Documentation | 🔄 IN PROGRESS | 24-30 | VOICE-CATALOG.md + TESTING.md done, 4 docs in progress |
+| Phase 9: Documentation | ✅ COMPLETE | 24-30 | All 6 docs written with SVG diagrams |
 
 ## Current Task
 
-**Task:** Phase 9 — Documentation (4 remaining docs being written)
+**Task:** All tasks complete — final build & verify
 **Branch:** speech-clean
-**Last Commit:** ac8e912
+**Last Commit:** ab256d9
 
 ## Key File Paths
 
@@ -55,11 +55,11 @@
 
 ### VPS State
 - SSH: root@187.77.30.206 (password in C:\Users\Admin\Downloads\VPS\env\.env.ssh)
-- Models collecting at /opt/rvc-models/models/ (100GB cap, ~18GB so far)
+- Models at /opt/rvc-models/models/ (104GB, 233 voice dirs, 235 catalog entries)
 - Edge-TTS server running on port 5050
 - Model server on port 8080
 - Nginx proxying voice.daveai.tech
-- 165GB total disk, collecting to 100GB limit
+- 193GB total disk, 104GB used for models, 39GB free
 
 ## Design Docs
 - `docs/plans/2026-04-10-voice-studio-design.md` — approved design
@@ -162,10 +162,10 @@ After each phase, verify these connections:
 | 21 | Audit Type 1 | 2026-04-10 | 2026-04-10 | ✓ | — |
 | 22 | Audit Type 2 | 2026-04-10 | 2026-04-10 | ✓ | — |
 | 23 | Audit Type 3 | 2026-04-10 | 2026-04-10 | ✓ | — |
-| 24 | ARCHITECTURE.md | 2026-04-10 | in progress | | pending |
-| 25 | VOICE-STUDIO-GUIDE.md | 2026-04-10 | in progress | | pending |
-| 26 | VPS-SETUP.md | 2026-04-10 | in progress | | pending |
-| 27 | API-REFERENCE.md | 2026-04-10 | in progress | | pending |
-| 28 | VOICE-CATALOG.md | 2026-04-10 | 2026-04-10 | ✓ | pending |
-| 29 | TESTING.md | 2026-04-10 | 2026-04-10 | ✓ | pending |
-| 30 | Final Build & Verify | | | | |
+| 24 | ARCHITECTURE.md | 2026-04-10 | 2026-04-10 | ✓ | b5a4c5f |
+| 25 | VOICE-STUDIO-GUIDE.md | 2026-04-10 | 2026-04-10 | ✓ | b5a4c5f |
+| 26 | VPS-SETUP.md | 2026-04-10 | 2026-04-10 | ✓ | b5a4c5f |
+| 27 | API-REFERENCE.md | 2026-04-10 | 2026-04-10 | ✓ | b5a4c5f |
+| 28 | VOICE-CATALOG.md | 2026-04-10 | 2026-04-11 | ✓ | pending |
+| 29 | TESTING.md | 2026-04-10 | 2026-04-10 | ✓ | b5a4c5f |
+| 30 | Final Build & Verify | 2026-04-11 | 2026-04-11 | ✓ | pending |
