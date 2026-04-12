@@ -43,6 +43,20 @@ function validateDockerHost(host: string): void {
   }
 }
 
+// kilocode_change - validate container/image target to prevent argument injection
+// Container names: alphanumeric + hyphens/underscores/dots/slashes (for images with registry paths)
+// Image names: can include registry (registry.example.com/name:tag) and digests (sha256:...)
+const DANGEROUS_TARGET_CHARS = /[`$(){}|;&<>!"'\\\n\r\t]/
+
+function validateDockerTarget(target: string, paramName = "target"): void {
+  if (DANGEROUS_TARGET_CHARS.test(target)) {
+    throw new Error(
+      `Invalid Docker ${paramName}: "${target}" contains characters that are not allowed. ` +
+        `Use only alphanumeric characters, hyphens, underscores, dots, forward slashes, and colons.`,
+    )
+  }
+}
+
 // kilocode_change - split options string into argv array, respecting quoted values
 function splitOptions(options: string): string[] {
   const args: string[] = []
@@ -170,7 +184,8 @@ export const DockerTool = Tool.define("docker", async () => {
     async execute(params, ctx) {
       const startTime = Date.now()
 
-      // Validate remote host if specified
+      // kilocode_change - validate target (container/image name) and remote host before use
+      validateDockerTarget(params.target)
       if (params.host) {
         validateDockerHost(params.host)
       }
