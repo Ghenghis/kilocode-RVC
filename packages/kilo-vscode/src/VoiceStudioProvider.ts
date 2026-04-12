@@ -2,6 +2,7 @@ import * as vscode from "vscode"
 import * as crypto from "crypto"
 import * as https from "https"
 import { DebugCollector } from "./services/debug/DebugCollector"
+import { OperationsTracker } from "./services/operations/OperationsTracker"
 import * as http from "http"
 import * as fs from "fs"
 import * as path from "path"
@@ -79,6 +80,8 @@ export class VoiceStudioProvider implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
   ) {
     this.log = vscode.window.createOutputChannel("KiloCode Voice Studio", { log: true })
+    // Initialize OperationsTracker with context for timing history persistence
+    OperationsTracker.getInstance().init(context)
   }
 
   // -- Singleton access -----------------------------------------------------
@@ -336,7 +339,7 @@ export class VoiceStudioProvider implements vscode.Disposable {
           modelServerUrl: speech.get<string>("rvc.modelServerUrl", "https://voice.daveai.tech"),
         },
         azure: {
-          region: speech.get<string>("azure.region", "eastus"),
+          region: speech.get<string>("azure.region", "westus"),
           apiKey: speech.get<string>("azure.apiKey", ""),
           voiceId: speech.get<string>("azure.voiceId", "en-US-JennyNeural"),
         },
@@ -352,10 +355,69 @@ export class VoiceStudioProvider implements vscode.Disposable {
     this.post({ type: "voiceStudioState", ...state })
   }
 
+  // -- Helper: resolve the running RVC Docker container name -----------------
+  // The auto-setup creates `kilocode-rvc-{port}`, but legacy installs may
+  // use `edge-tts-server`.  This method checks both, caches the result, and
+  // never fails — worst case it returns the new-style name so the caller can
+  // surface a clear error about the container not being found.
+
+  private resolvedContainerName: string | undefined
+  private containerNameResolvedAt = 0
+
+  private async resolveContainerName(): Promise<string> {
+    // Cache for 30s — auto-setup may create a new container any time
+    if (this.resolvedContainerName && Date.now() - this.containerNameResolvedAt < 30_000) {
+      return this.resolvedContainerName
+    }
+
+    const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+    const port = speech.get<number>("rvc.dockerPort", 5050)
+
+    const cacheAndReturn = (name: string): string => {
+      this.resolvedContainerName = name
+      this.containerNameResolvedAt = Date.now()
+      return name
+    }
+
+    // Priority 1: new-style name (from auto-setup)
+    const newName = `kilocode-rvc-${port}`
+    try {
+      const out = await this.execAsync(`docker inspect --format="{{.State.Status}}" ${newName}`)
+      if (out.trim()) return cacheAndReturn(newName)
+    } catch { /* not found, try next */ }
+
+    // Priority 2: any kilocode-rvc container
+    try {
+      const out = await this.execAsync('docker ps --filter "name=kilocode-rvc" --format "{{.Names}}" --no-trunc')
+      const first = out.split("\n").map(s => s.trim()).filter(Boolean)[0]
+      if (first) return cacheAndReturn(first)
+    } catch { /* continue */ }
+
+    // Priority 3: legacy name
+    try {
+      const out = await this.execAsync('docker inspect --format="{{.State.Status}}" edge-tts-server')
+      if (out.trim()) return cacheAndReturn("edge-tts-server")
+    } catch { /* not found */ }
+
+    // Fallback: use the new-style name (will give a clear error downstream)
+    return cacheAndReturn(newName)
+  }
+
+  /** Clear the cached container name (e.g. after auto-setup creates a new one). */
+  public clearContainerNameCache(): void {
+    this.resolvedContainerName = undefined
+    this.containerNameResolvedAt = 0
+  }
+
   // -- Handler: fetchVoiceLibrary -------------------------------------------
 
   private async handleFetchVoiceLibrary(): Promise<void> {
     this.log.info("[Library] Fetching voice library from Docker container")
+    const ops = OperationsTracker.getInstance()
+    const opId = ops.startTask("library-fetch", "Fetching voice library", {
+      steps: ["Connect to Docker", "Load voice catalog", "Merge metadata"],
+    })
+
     const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
     const port = speech.get<number>("rvc.dockerPort", 5050)
     const favorites = this.context.globalState.get<string[]>(GS_FAVORITES, [])
@@ -368,26 +430,57 @@ export class VoiceStudioProvider implements vscode.Disposable {
       const parsed = JSON.parse(raw) as { voices?: unknown[]; total?: number }
       voices = parsed.voices ?? []
       this.log.info(`[Library] Received ${voices.length} voices from catalog`)
+      ops.advanceStep(opId, `${voices.length} voices from /catalog`)
     } catch (err) {
-      this.log.error(`[Library] Failed to fetch voices from Docker: ${err}`)
-      // Fall back to listing models via docker exec
+      this.log.error(`[Library] Failed to fetch catalog from Docker: ${err}`)
+      ops.updateProgress(opId, { detail: "Catalog failed, trying /voices..." })
+      // Fallback 1: try /voices endpoint (simpler format)
       try {
-        const output = await this.execAsync('docker exec edge-tts-server ls /models/ 2>/dev/null || echo ""')
-        const files = output
-          .split("\n")
-          .map((f) => f.trim())
-          .filter((f) => f.endsWith(".pth"))
-        voices = files.map((f) => ({
-          id: f.replace(".pth", ""),
-          name: f.replace(".pth", ""),
-          filename: f,
+        const raw = await this.httpGet(`http://127.0.0.1:${port}/voices`)
+        const parsed = JSON.parse(raw) as Array<{ id: string; sizeMB?: number }>
+        voices = parsed.map((v) => ({
+          id: v.id,
+          name: v.id.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          filename: "model.pth",
           source: "local",
+          provider: "rvc",
+          sizeMB: v.sizeMB ?? 0,
         }))
-        this.log.info(`[Library] Fallback: found ${voices.length} model files via docker exec`)
-      } catch (execErr) {
-        this.log.error(`[Library] Docker exec fallback failed: ${execErr}`)
+        this.log.info(`[Library] Fallback /voices: found ${voices.length} models`)
+        ops.advanceStep(opId, `${voices.length} voices from /voices`)
+      } catch (fallbackErr) {
+        this.log.error(`[Library] Fallback /voices failed: ${fallbackErr}`)
+        ops.updateProgress(opId, { detail: "/voices failed, trying docker exec..." })
+        // Fallback 2: list model directories via docker exec
+        try {
+          const cname = await this.resolveContainerName()
+          // Models live in subdirectories: /models/{voice_id}/model.pth
+          const output = await this.execAsync(`docker exec ${cname} sh -c "ls -d /models/*/ 2>/dev/null || echo ''"`)
+          const dirs = output
+            .split("\n")
+            .map((d) => d.trim().replace(/\/$/, ""))
+            .filter(Boolean)
+            .map((d) => d.split("/").pop() ?? "")
+            .filter(Boolean)
+          voices = dirs.map((d) => ({
+            id: d,
+            name: d.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+            filename: "model.pth",
+            source: "local",
+            provider: "rvc",
+          }))
+          this.log.info(`[Library] Fallback docker exec: found ${voices.length} model directories`)
+          ops.advanceStep(opId, `${voices.length} dirs via docker exec`)
+        } catch (execErr) {
+          this.log.error(`[Library] Docker exec fallback failed: ${execErr}`)
+          ops.failTask(opId, `All fetch methods failed: ${execErr}`, true)
+          this.post({ type: "voiceLibraryLoaded", voices: [] })
+          return
+        }
       }
     }
+
+    ops.advanceStep(opId)
 
     // Merge favorite/history flags
     const merged = (voices as Array<Record<string, unknown>>).map((v) => ({
@@ -397,6 +490,7 @@ export class VoiceStudioProvider implements vscode.Disposable {
     }))
 
     this.post({ type: "voiceLibraryLoaded", voices: merged })
+    ops.completeTask(opId)
   }
 
   // -- Handler: fetchStoreModels --------------------------------------------
@@ -443,27 +537,61 @@ export class VoiceStudioProvider implements vscode.Disposable {
   }): Promise<void> {
     const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
     const modelServerUrl = speech.get<string>("rvc.modelServerUrl", "https://voice.daveai.tech")
+    const port = speech.get<number>("rvc.dockerPort", 5050)
     const text = msg.text ?? "Hello, this is a voice preview."
 
     this.log.info(`[Store] Previewing voice ${msg.modelId}`)
 
+    // Strategy 1: Try VPS preview endpoint
     try {
       const raw = await this.httpPost(
         `${modelServerUrl}/api/preview`,
         JSON.stringify({ modelId: msg.modelId, text }),
       )
       const result = JSON.parse(raw) as { audio?: string; format?: string }
-      this.log.info(`[Store] Preview audio received for ${msg.modelId}`)
+      this.log.info(`[Store] Preview audio received from VPS for ${msg.modelId}`)
       this.post({
         type: "previewAudioReady",
         modelId: msg.modelId,
         audioBase64: result.audio ?? "",
         format: result.format ?? "wav",
       })
+      return
     } catch (err) {
-      this.log.error(`[Store] Preview failed for ${msg.modelId}: ${err}`)
-      this.post({ type: "previewAudioReady", modelId: msg.modelId, audioBase64: "", error: String(err) })
+      this.log.warn(`[Store] VPS preview failed for ${msg.modelId}: ${err}`)
     }
+
+    // Strategy 2: Try local Docker container /synthesize if the model is installed locally
+    try {
+      const raw = await this.httpPostBinary(
+        `http://127.0.0.1:${port}/synthesize`,
+        JSON.stringify({
+          text,
+          voice_id: msg.modelId,
+          edge_voice: speech.get<string>("rvc.edgeVoice", "en-US-AriaNeural"),
+          pitch_shift: speech.get<number>("rvc.pitchShift", 0),
+        }),
+      )
+      const audioBase64 = raw.toString("base64")
+      this.log.info(`[Store] Preview audio received from local Docker for ${msg.modelId}`)
+      this.post({
+        type: "previewAudioReady",
+        modelId: msg.modelId,
+        audioBase64,
+        format: "wav",
+      })
+      return
+    } catch (localErr) {
+      this.log.warn(`[Store] Local Docker preview failed for ${msg.modelId}: ${localErr}`)
+    }
+
+    // Both failed
+    this.post({
+      type: "previewAudioReady",
+      modelId: msg.modelId,
+      audioBase64: "",
+      error: "Preview unavailable — VPS server is offline and model is not installed locally.",
+    })
   }
 
   // -- Handler: downloadModel -----------------------------------------------
@@ -486,6 +614,13 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
     this.log.info(`[Download] Starting download: ${name} (${modelId}) from ${url}`)
 
+    const ops = OperationsTracker.getInstance()
+    const opId = ops.startTask("model-download", `Downloading ${name}`, {
+      steps: ["Download model file", "Create model directory", "Install to Docker", "Verify installation"],
+    })
+    // Forward operation messages to webview
+    const unsubOps = ops.onMessage((msg) => this.post(msg as unknown as Record<string, unknown>))
+
     const controller = new AbortController()
     this.downloads.set(modelId, { controller, received: 0, total: 0 })
 
@@ -505,6 +640,9 @@ export class VoiceStudioProvider implements vscode.Disposable {
           this.log.info(`[Download] ${name}: ${pct}%`)
         }
 
+        // Update both the legacy download progress AND the operations tracker
+        ops.updateProgress(opId, { percent: pct, receivedBytes: received, totalBytes: total })
+
         this.post({
           type: "downloadProgress",
           modelId,
@@ -515,10 +653,15 @@ export class VoiceStudioProvider implements vscode.Disposable {
       })
 
       this.log.info(`[Download] ${name}: file downloaded, copying to Docker container`)
+      ops.advanceStep(opId, "Download complete")
 
-      // Install into Docker container
-      await this.execAsync(`docker cp "${tmpFile}" edge-tts-server:/models/${name}.pth`)
-      this.log.info(`[Download] ${name}: installed to Docker container`)
+      // Install into Docker container — models live in subdirectories: /models/{name}/model.pth
+      const cname = await this.resolveContainerName()
+      ops.advanceStep(opId, `Creating /models/${name}/`)
+      await this.execAsync(`docker exec ${cname} sh -c "mkdir -p /models/${name}"`)
+      ops.advanceStep(opId, "Copying model to container...")
+      await this.execAsync(`docker cp "${tmpFile}" ${cname}:/models/${name}/model.pth`)
+      this.log.info(`[Download] ${name}: installed to Docker container at /models/${name}/model.pth`)
 
       // Clean up temp file
       try {
@@ -528,6 +671,8 @@ export class VoiceStudioProvider implements vscode.Disposable {
       }
 
       this.downloads.delete(modelId)
+      ops.completeTask(opId)
+      unsubOps()
 
       this.post({ type: "downloadComplete", modelId, success: true })
       this.log.info(`[Download] ${name}: complete`)
@@ -543,11 +688,14 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
       if (controller.signal.aborted) {
         this.log.info(`[Download] ${name}: cancelled by user`)
+        ops.cancelTask(opId)
         this.post({ type: "downloadComplete", modelId, success: false, error: "cancelled" })
       } else {
         this.log.error(`[Download] ${name}: failed: ${err}`)
+        ops.failTask(opId, String(err), true)
         this.post({ type: "downloadComplete", modelId, success: false, error: String(err) })
       }
+      unsubOps()
     }
   }
 
@@ -577,9 +725,17 @@ export class VoiceStudioProvider implements vscode.Disposable {
       return
     }
 
+    const ops = OperationsTracker.getInstance()
+    const opId = ops.startTask("model-delete", `Deleting ${safeName}`)
+    const unsubOps = ops.onMessage((m) => this.post(m as unknown as Record<string, unknown>))
+
     try {
-      await this.execAsync(`docker exec edge-tts-server rm -rf "/models/${safeName}.pth"`)
+      const cname = await this.resolveContainerName()
+      // Models live in subdirectories: /models/{name}/ — remove entire directory
+      // Also handle legacy flat files: /models/{name}.pth
+      await this.execAsync(`docker exec ${cname} sh -c "rm -rf /models/${safeName} /models/${safeName}.pth"`)
       this.log.info(`[Library] Model ${msg.name} deleted from Docker container`)
+      ops.completeTask(opId)
 
       // Remove from favorites if present
       const favorites = this.context.globalState.get<string[]>(GS_FAVORITES, [])
@@ -592,7 +748,10 @@ export class VoiceStudioProvider implements vscode.Disposable {
       this.post({ type: "modelDeleted", modelId: msg.modelId, success: true })
     } catch (err) {
       this.log.error(`[Library] Failed to delete model ${msg.name}: ${err}`)
+      ops.failTask(opId, String(err), true)
       this.post({ type: "modelDeleted", modelId: msg.modelId, success: false, error: String(err) })
+    } finally {
+      unsubOps()
     }
   }
 
@@ -860,6 +1019,47 @@ export class VoiceStudioProvider implements vscode.Disposable {
         const chunks: Buffer[] = []
         res.on("data", (chunk: Buffer) => chunks.push(chunk))
         res.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")))
+        res.on("error", reject)
+      })
+
+      req.on("error", reject)
+      req.setTimeout(60_000, () => {
+        req.destroy(new Error(`Timeout for POST ${url}`))
+      })
+      req.write(body)
+      req.end()
+    })
+  }
+
+  // -- Utility: httpPostBinary (returns raw Buffer for binary responses) -----
+
+  private httpPostBinary(url: string, body: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url)
+      const mod = parsed.protocol === "https:" ? https : http
+      const options: https.RequestOptions = {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      }
+
+      const req = mod.request(options, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          this.httpPostBinary(res.headers.location, body).then(resolve, reject)
+          return
+        }
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode} for POST ${url}`))
+          return
+        }
+        const chunks: Buffer[] = []
+        res.on("data", (chunk: Buffer) => chunks.push(chunk))
+        res.on("end", () => resolve(Buffer.concat(chunks)))
         res.on("error", reject)
       })
 
