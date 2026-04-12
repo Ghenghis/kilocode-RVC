@@ -29,6 +29,7 @@ import { fileName, dirName, buildHighlightSegments, atEnd } from "./prompt-input
 import type { ReviewComment, TextPart } from "../../types/messages"
 import { formatReviewCommentsMarkdown } from "../../utils/review-comment-markdown"
 import { pendingDraftKey, scopeDraftKey, sessionDraftKey } from "../../utils/prompt-drafts"
+import { speechPlayback } from "../../utils/speech-playback"
 
 // Per-session input text storage (module-level so it survives remounts)
 const drafts = new Map<string, string>()
@@ -436,6 +437,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const handleInput = (e: InputEvent) => {
+    // Real-time interruption: stop any active speech when user starts typing
+    if (speechPlayback.isPlaying()) {
+      speechPlayback.stop()
+    }
+
     const target = e.target as HTMLTextAreaElement
     const val = target.value
     setText(val)
@@ -549,6 +555,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const handleSend = () => {
+    // Real-time interruption: stop speech when user sends a message
+    if (speechPlayback.isPlaying()) {
+      speechPlayback.stop()
+    }
+
     const draft = text().trim()
 
     // Detect slash command (hoisted for both client and server command checks).
