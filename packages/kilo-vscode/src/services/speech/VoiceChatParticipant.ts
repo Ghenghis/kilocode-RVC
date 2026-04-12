@@ -8,7 +8,8 @@
 //   context.subscriptions.push(voiceChatParticipant)
 
 import * as vscode from "vscode"
-import type { VoiceStudioProvider } from "../../VoiceStudioProvider"
+// kilocode_change – value import (not type-only) so getInstance() is callable at runtime
+import { VoiceStudioProvider } from "../../VoiceStudioProvider"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -43,9 +44,12 @@ interface AgentVoiceConfig {
 export class VoiceChatParticipant implements vscode.Disposable {
   private readonly participant: vscode.ChatParticipant
 
+  // kilocode_change – voiceStudioProvider is optional; resolved lazily via
+  // VoiceStudioProvider.getInstance() so the participant can be registered at
+  // extension activation before the panel has been opened for the first time.
   constructor(
     private readonly context: vscode.ExtensionContext,
-    private readonly voiceStudioProvider: VoiceStudioProvider,
+    private readonly voiceStudioProviderRef?: VoiceStudioProvider,
   ) {
     this.participant = vscode.chat.createChatParticipant(
       PARTICIPANT_ID,
@@ -53,6 +57,11 @@ export class VoiceChatParticipant implements vscode.Disposable {
     )
 
     this.participant.iconPath = new vscode.ThemeIcon("unmute")
+  }
+
+  /** Returns the live VoiceStudioProvider instance (eager ref or singleton). */
+  private get voiceStudioProvider(): VoiceStudioProvider | undefined {
+    return this.voiceStudioProviderRef ?? VoiceStudioProvider.getInstance()
   }
 
   // ── Request handler ────────────────────────────────────────────────────────
@@ -110,14 +119,32 @@ export class VoiceChatParticipant implements vscode.Disposable {
     const replyText = `Switching to **${voiceName}**...`
     stream.markdown(replyText)
 
-    // Post a setActiveVoice message to the VoiceStudioProvider webview panel
-    // so the change is reflected in the Voice Studio UI and persisted to config.
-    // We determine the provider from the current configuration so the switch
-    // behaves the same as clicking a voice in the Library panel.
+    // kilocode_change – persist the voice switch directly to VS Code configuration
+    // (postToVoiceStudio sends TO the webview; to actually save the config we must
+    // update it here, then notify the webview of the resulting change).
     const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
     const provider = speech.get<string>("provider", "browser")
 
-    this.postToVoiceStudio({ type: "setActiveVoice", voiceId: voiceName, provider })
+    try {
+      switch (provider) {
+        case "rvc":
+          await speech.update("rvc.voiceId", voiceName, vscode.ConfigurationTarget.Global)
+          break
+        case "azure":
+          await speech.update("azure.voiceId", voiceName, vscode.ConfigurationTarget.Global)
+          break
+        case "browser":
+        default:
+          await speech.update("browser.voiceURI", voiceName, vscode.ConfigurationTarget.Global)
+          break
+      }
+    } catch (configErr) {
+      // Non-fatal — webview will still be notified; the user may need to re-save
+      console.warn("[VoiceChatParticipant] Failed to persist voice switch:", configErr)
+    }
+
+    // Notify the webview panel so the Voice Studio UI reflects the change immediately
+    this.postToVoiceStudio({ type: "activeVoiceChanged", voiceId: voiceName, provider, source: "chatParticipant" })
 
     stream.button({
       title: "🔊 Speak This",
@@ -292,7 +319,8 @@ export class VoiceChatParticipant implements vscode.Disposable {
    * the panel opens via `requestVoiceStudioState`.
    */
   private postToVoiceStudio(message: Record<string, unknown>): void {
-    this.voiceStudioProvider.postToWebview(message)
+    // kilocode_change – guard: the VoiceStudio panel may not be open yet
+    this.voiceStudioProvider?.postToWebview(message)
   }
 
   // ── Dispose ────────────────────────────────────────────────────────────────

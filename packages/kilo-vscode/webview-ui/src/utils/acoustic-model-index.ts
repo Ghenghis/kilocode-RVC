@@ -408,11 +408,16 @@ export class AcousticModelIndex {
 
 		switch (by) {
 			case "recentlyUsed":
-				// Models with no lastUsed equivalent fall to the bottom
+				// kilocode_change — sort by most recently installed among used models;
+				// ModelMetadata has no lastUsedAt field, so installedAt is the best
+				// available recency proxy.  Models with usageCount > 0 sort above unused ones.
 				return copy.sort((a, b) => {
-					const aTime = a.usageCount > 0 ? a.installedAt : 0
-					const bTime = b.usageCount > 0 ? b.installedAt : 0
-					return bTime - aTime
+					// Primary: used > unused
+					const aUsed = a.usageCount > 0 ? 1 : 0
+					const bUsed = b.usageCount > 0 ? 1 : 0
+					if (bUsed !== aUsed) return bUsed - aUsed
+					// Secondary: more recently installed (larger timestamp first)
+					return b.installedAt - a.installedAt
 				})
 
 			case "mostUsed":

@@ -227,11 +227,12 @@ export class DownloadManager extends EventTarget {
   /**
    * Start processing the download queue.
    * Safe to call multiple times — subsequent calls are no-ops while running.
+   * kilocode_change — fill all available concurrency slots on start, not just one
    */
   start(): void {
     if (this.running) return
     this.running = true
-    this.scheduleNext()
+    this._fillSlots()
   }
 
   // ── Per-job control ────────────────────────────────────────────────────────
@@ -279,14 +280,24 @@ export class DownloadManager extends EventTarget {
 
   // ── Internal scheduling ────────────────────────────────────────────────────
 
+  /**
+   * Fill all available concurrency slots by starting queued jobs until either
+   * maxConcurrent is reached or there are no more queued jobs.
+   * kilocode_change — loop to fill all slots (fixes single-slot-only bug)
+   */
+  private _fillSlots(): void {
+    while (true) {
+      const active = this.countByStatus("downloading")
+      if (active >= this.config.maxConcurrent) break
+      const queued = Array.from(this.jobs.values()).find((j) => j.status === "queued")
+      if (!queued) break
+      void this.runJob(queued)
+    }
+  }
+
+  /** @deprecated Use _fillSlots() for multi-slot filling. Kept for internal callers. */
   private scheduleNext(): void {
-    const active = this.countByStatus("downloading")
-    if (active >= this.config.maxConcurrent) return
-
-    const queued = Array.from(this.jobs.values()).find((j) => j.status === "queued")
-    if (!queued) return
-
-    void this.runJob(queued)
+    this._fillSlots()
   }
 
   private countByStatus(status: DownloadJobStatus): number {

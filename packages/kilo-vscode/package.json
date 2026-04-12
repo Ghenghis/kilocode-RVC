@@ -329,6 +329,37 @@
         "command": "kilo-code.runDebugTests",
         "title": "Run E2E Debug Test Suite",
         "category": "Kilo Code"
+      },
+      {
+        "command": "kilo.speakResponse",
+        "title": "Speak Response",
+        "category": "Kilo Code"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "kilo.voice",
+        "name": "voice",
+        "description": "Voice control for KiloCode — switch voices, show cast, compare voices, and check status.",
+        "isSticky": false,
+        "commands": [
+          {
+            "name": "switch",
+            "description": "Switch the active TTS voice (e.g. @voice /switch snoop-dogg)"
+          },
+          {
+            "name": "cast",
+            "description": "Show the current agent→voice assignment table"
+          },
+          {
+            "name": "compare",
+            "description": "Replay the last response in all installed voices"
+          },
+          {
+            "name": "status",
+            "description": "Show the active voice, provider, and health status"
+          }
+        ]
       }
     ],
     "submenus": [

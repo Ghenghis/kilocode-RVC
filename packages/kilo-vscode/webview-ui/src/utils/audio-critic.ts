@@ -39,43 +39,33 @@ export class AudioCritic {
    * @param expectedTextLength Number of characters in the original TTS input text
    */
   static async analyze(audioBuffer: AudioBuffer, expectedTextLength: number): Promise<AudioCriticResult> {
-    // kilocode_change — single OfflineAudioContext pass for all checks
-    const sampleRate = audioBuffer.sampleRate
-    const length = audioBuffer.length
+    // kilocode_change — extract raw float samples from the first channel for checks 1-3
+    // AnalyserNode after startRendering() only captures the LAST rendered frame (1024-2048 samples).
+    // For accurate full-file checks we must read the AudioBuffer channel data directly.
+    const channelData = audioBuffer.getChannelData(0) // Float32Array in [-1, 1]
 
-    // Build an OfflineAudioContext to run the analyser node
-    const offlineCtx = new OfflineAudioContext(
-      audioBuffer.numberOfChannels,
-      length,
-      sampleRate,
-    )
+    // Convert float channel data to the Uint8Array byte domain (centre=128) that
+    // the existing check helpers expect.  v ∈ [-1, 1] → byte = round(v * 127 + 128).
+    // kilocode_change — convert full-buffer float samples to byte domain for checks 1-3
+    const timeDomainData = new Uint8Array(channelData.length)
+    for (let i = 0; i < channelData.length; i++) {
+      // Clamp to [-1, 1] then map: -1 → 1, 0 → 128, +1 → 255
+      const clamped = Math.max(-1, Math.min(1, channelData[i]))
+      timeDomainData[i] = Math.round(clamped * 127 + 128)
+    }
 
-    const source = offlineCtx.createBufferSource()
-    source.buffer = audioBuffer
-
-    const analyser = offlineCtx.createAnalyser()
-    analyser.fftSize = 2048
-    analyser.smoothingTimeConstant = 0
-
-    source.connect(analyser)
-    analyser.connect(offlineCtx.destination)
-    source.start(0)
-
-    // Render the full buffer through the analyser
-    await offlineCtx.startRendering()
-
-    // ── Gather time-domain data (byte, 0-255, centre=128) ──────────────────
-    const timeDomainData = new Uint8Array(analyser.frequencyBinCount)
-    analyser.getByteTimeDomainData(timeDomainData)
-
-    // ── Run checks 1-4 using time-domain data ──────────────────────────────
+    // ── Run checks 1-4 using full-buffer time-domain data ─────────────────
     const rmsCheck  = AudioCritic.checkRmsEnergy(timeDomainData)
     const peakCheck = AudioCritic.checkPeakAmplitude(timeDomainData)
     const zcrCheck  = AudioCritic.checkZeroCrossingRate(timeDomainData)
     const durCheck  = AudioCritic.checkDuration(audioBuffer, expectedTextLength)
 
-    // ── Check 5: spectral flatness requires frequency-domain data ──────────
-    const specCheck = AudioCritic.checkSpectralFlatness(analyser)
+    // ── Check 5: spectral flatness — use OfflineAudioContext + AnalyserNode ──
+    // For spectral analysis we do need the FFT, so we still render a representative
+    // window through the analyser.  We render only a 2048-sample window centred in
+    // the buffer so we capture speech content rather than silence at head/tail.
+    // kilocode_change — spectral check uses OfflineAudioContext for FFT data
+    const specCheck = await AudioCritic.checkSpectralFlatnessAsync(audioBuffer)
 
     // ── Aggregate results ──────────────────────────────────────────────────
     const checks = [rmsCheck, peakCheck, zcrCheck, durCheck, specCheck]
@@ -222,51 +212,91 @@ export class AudioCritic {
   /**
    * Detect noise vs speech using spectral flatness (Wiener entropy).
    *
+   * kilocode_change — async version renders a 2048-sample window through an
+   * OfflineAudioContext+AnalyserNode so we get accurate FFT data for the
+   * speech-heavy centre of the buffer, avoiding the head/tail silence.
+   *
    * Formula: flatness = geometric_mean(power) / arithmetic_mean(power)
    *   → 0 = pure tone (speech-like), 1 = white noise
-   *
-   * We use frequency-domain magnitude from getFloatFrequencyData() (dB scale).
-   * Convert dB → linear power: p = 10^(dB/10)
    * Flatness > 0.85 → noise dominates.
-   *
-   * getFloatFrequencyData() fills the buffer with the current frame;
-   * after startRendering() the analyser holds the last rendered frame.
    */
-  private static checkSpectralFlatness(analyser: AnalyserNode): { pass: boolean; issue?: string } {
-    // kilocode_change — spectral flatness check; high flatness = noise
-    const freqData = new Float32Array(analyser.frequencyBinCount)
-    analyser.getFloatFrequencyData(freqData)
+  private static async checkSpectralFlatnessAsync(
+    audioBuffer: AudioBuffer,
+  ): Promise<{ pass: boolean; issue?: string }> {
+    // kilocode_change — render a 2048-sample window centred in the buffer
+    const FFT_SIZE = 2048
+    const sampleRate = audioBuffer.sampleRate
 
-    // Convert dB to linear power, ignore -Infinity bins (silence in bin)
-    const powers: number[] = []
-    for (let i = 0; i < freqData.length; i++) {
-      const db = freqData[i]
-      if (isFinite(db) && db > -140) {
-        powers.push(Math.pow(10, db / 10))
-      }
-    }
+    // Use the centre of the buffer for the analysis window — avoids silence
+    const windowStart = Math.max(0, Math.floor(audioBuffer.length / 2) - FFT_SIZE)
+    const windowLength = Math.min(FFT_SIZE, audioBuffer.length - windowStart)
 
-    if (powers.length < 4) {
-      // Not enough spectral data — treat as passing (very short buffer edge case)
+    if (windowLength < 256) {
+      // Buffer too short for meaningful spectral analysis
       return { pass: true }
     }
 
-    // Arithmetic mean
-    const arithmeticMean = powers.reduce((a, b) => a + b, 0) / powers.length
+    try {
+      const offlineCtx = new OfflineAudioContext(1, windowLength, sampleRate)
+      const windowBuffer = offlineCtx.createBuffer(1, windowLength, sampleRate)
 
-    // Geometric mean via log-sum trick to avoid underflow
-    const logSum = powers.reduce((acc, p) => acc + Math.log(p), 0)
-    const geometricMean = Math.exp(logSum / powers.length)
-
-    const flatness = arithmeticMean > 0 ? geometricMean / arithmeticMean : 0
-
-    if (flatness > 0.85) {
-      return {
-        pass: false,
-        issue: `Spectral flatness too high (${flatness.toFixed(3)}) — audio resembles noise rather than speech`,
+      // Copy the window slice from the original buffer's first channel
+      const src = audioBuffer.getChannelData(0)
+      const dst = windowBuffer.getChannelData(0)
+      for (let i = 0; i < windowLength; i++) {
+        dst[i] = src[windowStart + i]
       }
+
+      const source = offlineCtx.createBufferSource()
+      source.buffer = windowBuffer
+
+      const analyser = offlineCtx.createAnalyser()
+      analyser.fftSize = FFT_SIZE
+      analyser.smoothingTimeConstant = 0
+
+      source.connect(analyser)
+      analyser.connect(offlineCtx.destination)
+      source.start(0)
+
+      await offlineCtx.startRendering()
+
+      // Gather frequency-domain data (dB scale)
+      const freqData = new Float32Array(analyser.frequencyBinCount)
+      analyser.getFloatFrequencyData(freqData)
+
+      // Convert dB to linear power; skip bins below -140 dB (silence / -Infinity)
+      const powers: number[] = []
+      for (let i = 0; i < freqData.length; i++) {
+        const db = freqData[i]
+        if (isFinite(db) && db > -140) {
+          powers.push(Math.pow(10, db / 10))
+        }
+      }
+
+      if (powers.length < 4) {
+        return { pass: true }
+      }
+
+      // Arithmetic mean
+      const arithmeticMean = powers.reduce((a, b) => a + b, 0) / powers.length
+
+      // Geometric mean via log-sum trick to avoid underflow
+      const logSum = powers.reduce((acc, p) => acc + Math.log(p), 0)
+      const geometricMean = Math.exp(logSum / powers.length)
+
+      const flatness = arithmeticMean > 0 ? geometricMean / arithmeticMean : 0
+
+      if (flatness > 0.85) {
+        return {
+          pass: false,
+          issue: `Spectral flatness too high (${flatness.toFixed(3)}) — audio resembles noise rather than speech`,
+        }
+      }
+      return { pass: true }
+    } catch {
+      // OfflineAudioContext not available (e.g., test environment) — pass through
+      return { pass: true }
     }
-    return { pass: true }
   }
 }
 

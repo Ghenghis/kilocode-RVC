@@ -1385,8 +1385,11 @@ export class VoiceStudioProvider implements vscode.Disposable {
           })
           req.on("error", (err) => {
             this.log.warn(`[VoiceRouter] Request error: ${err}`)
-            res.writeHead(500, { "Content-Type": "application/json" })
-            res.end(JSON.stringify({ ok: false, error: String(err) }))
+            // kilocode_change – guard against writing headers twice if already sent
+            if (!res.headersSent) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: String(err) }))
+            }
           })
         } else {
           res.writeHead(404, { "Content-Type": "application/json" })
@@ -1394,13 +1397,20 @@ export class VoiceStudioProvider implements vscode.Disposable {
         }
       })
 
-      this.voiceRouterServer.on("error", (err: NodeJS.ErrnoException) => {
+      // kilocode_change – capture local ref so we can close it inside the callback
+      // without relying on the possibly-nulled this.voiceRouterServer field
+      const serverRef = this.voiceRouterServer
+      serverRef.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "EADDRINUSE") {
           this.log.warn("[VoiceRouter] Port 7892 already in use — VoiceRouter HTTP server not started")
         } else {
           this.log.warn(`[VoiceRouter] Server error: ${err}`)
+          // Close the server on unexpected errors so it doesn't linger
+          serverRef.close()
         }
-        this.voiceRouterServer = undefined
+        if (this.voiceRouterServer === serverRef) {
+          this.voiceRouterServer = undefined
+        }
       })
 
       this.voiceRouterServer.listen(7892, "127.0.0.1", () => {

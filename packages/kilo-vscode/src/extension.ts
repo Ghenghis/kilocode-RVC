@@ -19,6 +19,8 @@ import { registerToggleAutoApprove } from "./commands/toggle-auto-approve"
 import { VoiceStudioProvider } from "./VoiceStudioProvider"
 import { DebugCollector } from "./services/debug/DebugCollector"
 import { registerDebugTestCommand } from "./services/debug/DebugTestSuite"
+// kilocode_change — Phase 6.5: @voice chat participant
+import { VoiceChatParticipant } from "./services/speech/VoiceChatParticipant"
 
 // Activated via "onStartupFinished" (package.json) so that commands, code actions, keybindings,
 // autocomplete, commit-message generation, and URI deep links all work immediately — without
@@ -409,6 +411,21 @@ export function activate(context: vscode.ExtensionContext) {
 
           vscode.window.showInformationMessage(`Voice switched to: ${name}`)
         }
+      }
+    }),
+  )
+
+  // kilocode_change — Phase 6.5: register @voice chat participant and kilo.speakResponse command
+  context.subscriptions.push(new VoiceChatParticipant(context))
+
+  // kilo.speakResponse — triggered by chat participant "🔊 Speak This" buttons.
+  // Delegates speech to the active KiloProvider so the webview can route it through
+  // the configured TTS provider (browser / Azure / RVC).
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo.speakResponse", (text: string) => {
+      if (typeof text === "string" && text.trim()) {
+        // Post a speakText message to the main Kilo sidebar webview
+        provider.postMessage({ type: "speakText", text })
       }
     }),
   )

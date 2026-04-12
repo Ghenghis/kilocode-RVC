@@ -149,16 +149,18 @@ export class VoiceRoutingGraph {
       return result
     }
 
-    // Provider is unhealthy — find a fallback
+    // kilocode_change — find a healthy fallback provider from priority list
     const fallbackPriority = ["rvc", "azure", "browser"]
     for (const candidate of fallbackPriority) {
       if (candidate !== result.provider && isHealthy(candidate)) {
-        // Find a voice for this fallback provider from the agent map
+        // kilocode_change — prefer a voice explicitly mapped to this fallback provider.
+        // If the agent has no mapping for the fallback provider, use DEFAULT_VOICE_ID
+        // which is safe for all providers (browser's "en-US-AriaNeural").
         const agentEntry = input.agentVoiceMap[input.agentName]
-        let fallbackVoice = result.voiceId
-        if (agentEntry && agentEntry.provider === candidate) {
-          fallbackVoice = agentEntry.voiceId
-        }
+        const fallbackVoice: string =
+          agentEntry && agentEntry.provider === candidate
+            ? agentEntry.voiceId
+            : DEFAULT_VOICE_ID
 
         return {
           ...result,
@@ -166,7 +168,7 @@ export class VoiceRoutingGraph {
           voiceId: fallbackVoice,
           reason:
             result.reason +
-            `; provider "${result.provider}" unhealthy → fell back to "${candidate}"`,
+            `; provider "${result.provider}" unhealthy → fell back to "${candidate}" (voice: "${fallbackVoice}")`,
         }
       }
     }
