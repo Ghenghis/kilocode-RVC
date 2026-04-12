@@ -3535,3 +3535,29 @@ body.vscode-high-contrast-light {
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground);
 }
+
+/* ============================================
+   Operations Dashboard — Progress Animations
+   ============================================ */
+
+@keyframes kiloProgressPulse {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+@keyframes kiloOperationFadeOut {
+  0% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    height: 0;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+  }
+}
