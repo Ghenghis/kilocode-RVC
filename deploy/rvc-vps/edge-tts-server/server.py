@@ -142,28 +142,63 @@ async def list_models():
 
 @app.get("/models/{name:path}")
 async def download_model(name: str):
-    """Download a specific model file by name (with or without .pth extension)."""
-    if not name.endswith(".pth"):
-        name = name + ".pth"
+    """Download a specific model file by name (with or without .pth extension).
 
+    Search order:
+    1. MODELS_DIR/{name}.pth          — flat .pth files in the Docker /models dir
+    2. RVC_BASE/models/rvc-voices/{name}/ — voice directory with .pth inside
+    3. RVC_BASE/models/{name}/        — top-level voice directory
+    4. MODELS_DIR/{name}              — exact filename (may include extension)
+    """
     # Prevent path traversal
-    if ".." in name or name.startswith("/"):
+    clean = name.replace("\\", "/")
+    if ".." in clean or clean.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid model name")
 
-    model_path = MODELS_DIR / name
-    if not model_path.exists():
-        raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
+    base_name = clean.rstrip(".pth") if clean.endswith(".pth") else clean
 
-    # Verify the resolved path is still inside MODELS_DIR
-    try:
-        model_path.resolve().relative_to(MODELS_DIR.resolve())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid model path")
+    # --- Search order for the model file ---
+    candidates: list[Path] = []
+
+    # 1. Flat .pth in MODELS_DIR
+    candidates.append(MODELS_DIR / f"{base_name}.pth")
+
+    # 2. RVC voice directory (rvc-voices/{name}/*.pth)
+    rvc_dir = RVC_BASE / "models" / "rvc-voices" / base_name
+    if rvc_dir.exists() and rvc_dir.is_dir():
+        pth_files = sorted(rvc_dir.glob("*.pth"), key=lambda p: p.stat().st_size, reverse=True)
+        candidates.extend(pth_files)
+
+    # 3. Top-level voice directory
+    top_dir = RVC_BASE / "models" / base_name
+    if top_dir.exists() and top_dir.is_dir():
+        pth_files = sorted(top_dir.glob("*.pth"), key=lambda p: p.stat().st_size, reverse=True)
+        candidates.extend(pth_files)
+
+    # 4. Exact filename in MODELS_DIR
+    candidates.append(MODELS_DIR / clean)
+    if not clean.endswith(".pth"):
+        candidates.append(MODELS_DIR / f"{clean}.pth")
+
+    # Allowed base directories for path-traversal verification
+    allowed_bases = [MODELS_DIR.resolve(), (RVC_BASE / "models").resolve()]
+
+    model_path: Path | None = None
+    for cand in candidates:
+        if not cand.exists() or not cand.is_file():
+            continue
+        resolved = cand.resolve()
+        if any(str(resolved).startswith(str(base)) for base in allowed_bases):
+            model_path = cand
+            break
+
+    if model_path is None:
+        raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
 
     def file_iterator():
         with open(model_path, "rb") as f:
             while True:
-                chunk = f.read(8192)
+                chunk = f.read(65536)
                 if not chunk:
                     break
                 yield chunk
