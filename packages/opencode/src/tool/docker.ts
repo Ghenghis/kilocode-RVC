@@ -157,7 +157,7 @@ function buildDockerArgs(action: DockerAction, target: string, options?: string,
   return args
 }
 
-export const DockerTool = Tool.define("docker", () => {
+export const DockerTool = Tool.define("docker", async () => {
   return {
     description: DESCRIPTION,
     parameters: z.object({

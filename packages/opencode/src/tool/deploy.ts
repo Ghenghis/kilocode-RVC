@@ -481,7 +481,7 @@ async function runHealthCheck(healthUrl: string, abort: AbortSignal): Promise<St
   }
 }
 
-export const DeployTool = Tool.define("deploy", () => {
+export const DeployTool = Tool.define("deploy", async () => {
   return {
     description: DESCRIPTION,
     parameters: z.object({
@@ -541,6 +541,8 @@ export const DeployTool = Tool.define("deploy", () => {
           }
           break
         }
+        default:
+          throw new Error(`Unknown deploy action: ${params.action as string}`)
       }
 
       const durationMs = Date.now() - startTime

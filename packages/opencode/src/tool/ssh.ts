@@ -44,7 +44,7 @@ function validateHost(host: string): { user: string; hostname: string; portFromH
   return { user, hostname, portFromHost }
 }
 
-export const SshTool = Tool.define("ssh", () => {
+export const SshTool = Tool.define("ssh", async () => {
   return {
     description: DESCRIPTION,
     parameters: z.object({

@@ -188,7 +188,7 @@ export namespace TreeSearch {
     let currentID: string | null = leafNodeID
 
     while (currentID !== null) {
-      const node = newNodes[currentID]
+      const node: SearchNode | undefined = newNodes[currentID]
       if (!node) break
 
       const newVisits = node.visits + 1
