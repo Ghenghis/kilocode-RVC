@@ -320,21 +320,28 @@ export namespace SharedMemory {
 
     // Update access metadata for returned fragments
     const now = Date.now()
+    // kilocode_change — collect per-tier access updates so flushTier can apply them
+    const accessUpdates = new Map<string, { accessCount: number; lastAccessed: number }>()
     for (const result of results) {
       result.fragment.accessCount++
       result.fragment.lastAccessed = now
+      if (result.tier !== "L1") {
+        accessUpdates.set(result.fragment.id, {
+          accessCount: result.fragment.accessCount,
+          lastAccessed: result.fragment.lastAccessed,
+        })
+      }
       // For L1, the Map reference is already updated in-place.
-      // For L2/L3, we batch-flush updates below.
     }
 
     // Flush access-count updates for persistent tiers
     const l2Dirty = results.some((r) => r.tier === "L2")
     const l3Dirty = results.some((r) => r.tier === "L3")
     if (l2Dirty) {
-      await flushTier("L2")
+      await flushTier("L2", accessUpdates)
     }
     if (l3Dirty) {
-      await flushTier("L3")
+      await flushTier("L3", accessUpdates)
     }
 
     if (limit !== undefined) {
@@ -525,15 +532,24 @@ export namespace SharedMemory {
   }
 
   /**
-   * Flush the current in-memory state of a persistent tier back to disk.
-   * Used after bulk access-count updates to persist the changes.
-   */
-  async function flushTier(tier: "L2" | "L3"): Promise<void> {
+   * Flush access-count updates for a persistent tier back to disk.
+   * Reads the current file, applies the pending updates, then rewrites.
+   */ // kilocode_change — fixed: previously re-read from disk without applying updates
+  async function flushTier(
+    tier: "L2" | "L3",
+    updates: Map<string, { accessCount: number; lastAccessed: number }>,
+  ): Promise<void> {
     const filepath = pathForTier(tier)!
     const fragments = await readFile(filepath)
-    if (fragments.length > 0) {
-      await rewriteFile(filepath, fragments)
+    if (fragments.length === 0) return
+    for (const f of fragments) {
+      const upd = updates.get(f.id)
+      if (upd) {
+        f.accessCount = upd.accessCount
+        f.lastAccessed = upd.lastAccessed
+      }
     }
+    await rewriteFile(filepath, fragments)
   }
 
   /**

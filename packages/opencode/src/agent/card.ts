@@ -319,6 +319,61 @@ export namespace AgentCard {
         },
         performanceHistory: [],
       },
+
+      // kilocode_change - add infra agent card so the router can route to it
+      infra: {
+        name: "infra",
+        skills: [
+          {
+            id: "deploy-code",
+            description: "Deploy code to remote servers, manage deployments and rollbacks",
+            inputPatterns: [
+              "\\b(deploy|ship|release|push\\s+to|roll\\s*out)\\b.*\\b(server|production|staging|remote|vps)\\b",
+              "\\b(rollback|revert)\\b.*\\b(deploy|release|version)\\b",
+            ],
+            examples: [
+              "Deploy the latest build to production",
+              "Roll back the last deployment on staging",
+              "Ship this to the staging server",
+              "Push the release to the VPS",
+            ],
+          },
+          {
+            id: "manage-server",
+            description: "Manage remote servers via SSH, check status, run commands",
+            inputPatterns: [
+              "\\b(ssh|connect|log\\s*in)\\b.*\\b(server|remote|host|machine|vps|droplet|instance)\\b",
+              "\\b(server|remote|vps)\\b.*\\b(status|health|uptime|restart|reboot|check)\\b",
+            ],
+            examples: [
+              "SSH into the production server and check disk usage",
+              "Check the status of the web server",
+              "Restart the nginx service on the staging server",
+              "Connect to the GPU instance and check training progress",
+            ],
+          },
+          {
+            id: "manage-docker",
+            description: "Manage Docker containers, images, and compose services",
+            inputPatterns: [
+              "\\b(docker|container|compose)\\b",
+              "\\b(build|pull|push|run|stop|restart|logs)\\b.*\\b(image|container|service)\\b",
+            ],
+            examples: [
+              "Build and run the Docker container for the API",
+              "Check the logs of the running containers",
+              "Docker compose up the development stack",
+              "Stop all running containers on the server",
+            ],
+          },
+        ],
+        costProfile: {
+          avgTokensPerTask: 4000,
+          avgLatencyMs: 30000,
+          modelTier: "standard",
+        },
+        performanceHistory: [],
+      },
     }
   }
 }

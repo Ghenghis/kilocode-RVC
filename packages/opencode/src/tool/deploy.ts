@@ -40,6 +40,19 @@ function validatePath(remotePath: string): void {
   }
 }
 
+// kilocode_change - validate command strings (buildCommand / restartCommand)
+// Rejects obvious shell injection attempts while allowing normal commands.
+// These commands are also shown to the user via ctx.ask() for approval.
+const COMMAND_INJECTION_CHARS = /[`$(){}]/
+function validateCommand(command: string, label: string): void {
+  if (COMMAND_INJECTION_CHARS.test(command)) {
+    throw new Error(
+      `Invalid ${label}: "${command}" contains potentially dangerous characters (backticks, $, parentheses, braces). ` +
+        `Use simple commands like "npm run build" or "pm2 restart app".`,
+    )
+  }
+}
+
 interface StepResult {
   step: string
   success: boolean
@@ -485,9 +498,11 @@ export const DeployTool = Tool.define("deploy", () => {
     async execute(params, ctx) {
       const startTime = Date.now()
 
-      // Validate inputs
+      // Validate inputs — kilocode_change: also validate command strings
       validateHost(params.host)
       validatePath(params.path)
+      if (params.buildCommand) validateCommand(params.buildCommand, "buildCommand")
+      if (params.restartCommand) validateCommand(params.restartCommand, "restartCommand")
 
       log.info("deploy execute", { action: params.action, host: params.host, path: params.path })
 

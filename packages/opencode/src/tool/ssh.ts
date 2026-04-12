@@ -56,6 +56,11 @@ export const SshTool = Tool.define("ssh", () => {
         .optional()
         .describe(`Command timeout in milliseconds (default: ${DEFAULT_TIMEOUT})`),
       port: z.number().optional().describe("SSH port override (default: 22)"),
+      // kilocode_change - configurable host key checking policy
+      strictHostKey: z
+        .enum(["accept-new", "yes", "no"])
+        .optional()
+        .describe("SSH host key checking policy: 'accept-new' (default, accepts first connection), 'yes' (strict, requires known_hosts), 'no' (disable checking)"),
     }),
     async execute(params, ctx) {
       const startTime = Date.now()
@@ -82,10 +87,11 @@ export const SshTool = Tool.define("ssh", () => {
         },
       })
 
-      // Build SSH command arguments
+      // Build SSH command arguments — kilocode_change: configurable host key policy
+      const hostKeyPolicy = params.strictHostKey ?? "accept-new"
       const sshArgs: string[] = [
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        `StrictHostKeyChecking=${hostKeyPolicy}`,
         "-o",
         `ConnectTimeout=${CONNECT_TIMEOUT}`,
         "-o",
