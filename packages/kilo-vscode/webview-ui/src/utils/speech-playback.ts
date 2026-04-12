@@ -194,46 +194,42 @@ async function synthesizeAzure(
   return blob
 }
 
-// kilocode_change: RVC synthesis goes through the VoiceRouter proxy at port 7892
-// instead of calling http://localhost:5050 directly.  VS Code webviews are blocked
-// by CORS when calling arbitrary localhost ports (Docker containers don't set
-// Access-Control-Allow-Origin).  The extension-host proxy at 7892 has CORS headers
-// and relays to the container from Node.js where CORS is irrelevant.
-const VOICE_ROUTER_PORT = 7892
-
+// kilocode_change: RVC synthesis goes through KiloProvider message passing.
+// VS Code webviews cannot call http://localhost directly (CORS — Docker containers
+// don't set Access-Control-Allow-Origin). KiloProvider runs in Node.js (no CORS)
+// and is always active. The bridge is registered by SpeechTab on mount.
 async function synthesizeRvc(
   text: string,
   config: SpeechConfig,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  // Pre-flight health check via VoiceRouter proxy (CORS-safe)
-  try {
-    const health = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/health`, {
-      signal: AbortSignal.timeout(3000),
-    })
-    if (!health.ok) throw new Error("RVC container health check failed")
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg.includes("abort")) throw e
-    throw new Error(`RVC Docker container not reachable on port ${config.rvc.dockerPort} — is it running?`)
+  const bridge = getRvcBridge()
+  if (!bridge) {
+    throw new Error("RVC bridge not ready — open Speech settings once to initialize")
+  }
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError")
+
+  const id = Math.random().toString(36).slice(2)
+  const result = await bridge({
+    type: "rvcSynthesize",
+    id,
+    text,
+    voiceId: config.rvc.voiceId,
+    edgeVoice: config.rvc.edgeVoice || "en-US-AriaNeural",
+    pitchShift: config.rvc.pitchShift || 0,
+  }) as { ok: boolean; audioBase64?: string; error?: string }
+
+  if (!result.ok || !result.audioBase64) {
+    const errMsg = result.error ?? "RVC synthesis failed"
+    if (errMsg.includes("not found")) throw new Error(`Voice model '${config.rvc.voiceId}' not found in container`)
+    throw new Error(errMsg)
   }
 
-  const resp = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/synthesize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text,
-      voice_id: config.rvc.voiceId,
-      edge_voice: config.rvc.edgeVoice || "en-US-AriaNeural",
-      pitch_shift: config.rvc.pitchShift || 0,
-    }),
-    signal,
-  })
-  if (!resp.ok) {
-    if (resp.status === 404) throw new Error(`Voice model '${config.rvc.voiceId}' not found in container`)
-    throw new Error(`RVC synthesis returned HTTP ${resp.status}`)
-  }
-  const blob = await resp.blob()
+  // Decode base64 → Blob
+  const binary = atob(result.audioBase64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const blob = new Blob([bytes], { type: "audio/wav" })
   if (blob.size < 100) throw new Error("RVC returned empty audio")
   return blob
 }
@@ -399,16 +395,16 @@ class SpeechEngine {
     if (!basic.ready) return basic
 
     if (provider === "rvc") {
-      // kilocode_change: use VoiceRouter proxy (CORS-safe, port-scanning) instead of direct Docker port.
-      // The proxy scans 5050-5059 from Node.js where CORS is not enforced.
+      // kilocode_change: use KiloProvider message bridge — always active, no CORS issues
+      const bridge = getRvcBridge()
+      if (!bridge) return { ready: false, reason: "RVC bridge not ready — open Speech settings once" }
       try {
-        const resp = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/health`, {
-          signal: AbortSignal.timeout(5000),
-        })
-        if (!resp.ok) return { ready: false, reason: "RVC container not found on ports 5050–5059" }
+        const id = Math.random().toString(36).slice(2)
+        const result = await bridge({ type: "rvcHealth", id }) as { ok: boolean; port?: number; error?: string }
+        if (!result.ok) return { ready: false, reason: result.error ?? "RVC container not found on ports 5050–5059" }
         return { ready: true }
-      } catch {
-        return { ready: false, reason: `RVC proxy not reachable — VS Code may need a reload (port ${VOICE_ROUTER_PORT})` }
+      } catch (e: unknown) {
+        return { ready: false, reason: e instanceof Error ? e.message : "RVC health check failed" }
       }
     }
 
@@ -797,3 +793,18 @@ class SpeechEngine {
 
 /** Global singleton — imported by App.tsx, SpeechTab.tsx, etc. */
 export const speechPlayback = new SpeechEngine()
+
+// kilocode_change: RVC message bridge — set by SpeechTab on mount so synthesizeRvc
+// can route through KiloProvider (always active) instead of direct localhost fetch
+// (blocked by CORS in VS Code webviews) or the VoiceStudioProvider proxy (only
+// starts when the Voice Studio panel is opened).
+type RvcBridgeFn = (msg: Record<string, unknown>) => Promise<unknown>
+let _rvcBridge: RvcBridgeFn | undefined
+
+export function setRvcBridge(fn: RvcBridgeFn): void {
+  _rvcBridge = fn
+}
+
+export function getRvcBridge(): RvcBridgeFn | undefined {
+  return _rvcBridge
+}

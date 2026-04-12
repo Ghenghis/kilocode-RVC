@@ -8,7 +8,7 @@ import { useLanguage } from "../../context/language"
 import type { ExtensionMessage } from "../../types/messages"
 import SettingsRow from "./SettingsRow"
 import { AZURE_VOICES, AZURE_LOCALES, type AzureVoice } from "../../data/azure-voices"
-import { speechPlayback, type SpeechConfig } from "../../utils/speech-playback"
+import { speechPlayback, setRvcBridge, type SpeechConfig } from "../../utils/speech-playback"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type SpeechProvider = "rvc" | "azure" | "browser"
@@ -174,7 +174,7 @@ const SpeechTab: Component = () => {
     setSpeechLog((prev) => [{ time, provider, text: text.slice(0, 60), status }, ...prev].slice(0, 5))
   }
 
-  // Load browser voices
+  // Load browser voices + register RVC message bridge
   onMount(() => {
     const loadVoices = () => {
       const voices = speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"))
@@ -183,6 +183,28 @@ const SpeechTab: Component = () => {
     loadVoices()
     speechSynthesis.addEventListener("voiceschanged", loadVoices)
     vscode.postMessage({ type: "requestSpeechSettings" })
+
+    // kilocode_change: register the RVC bridge so speech-playback.ts can route
+    // rvcHealth / rvcSynthesize through KiloProvider (always active, no CORS)
+    setRvcBridge((msg) => {
+      return new Promise((resolve) => {
+        const id = (msg as { id?: string }).id ?? Math.random().toString(36).slice(2)
+        const resultType = (msg as { type: string }).type === "rvcSynthesize"
+          ? "rvcSynthesizeResult"
+          : (msg as { type: string }).type === "rvcVoices"
+            ? "rvcVoicesResult"
+            : "rvcHealthResult"
+        const unsub = vscode.onMessage((m: ExtensionMessage) => {
+          if ((m as unknown as Record<string, unknown>).type === resultType &&
+              (m as unknown as Record<string, unknown>).id === id) {
+            unsub()
+            resolve(m as unknown as Record<string, unknown>)
+          }
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vscode.postMessage({ ...msg, id } as any)
+      })
+    })
   })
 
   // Listen for settings from extension
@@ -218,32 +240,45 @@ const SpeechTab: Component = () => {
     stopPlayback()
   })
 
-  // kilocode_change: RVC health + voices routed through the VoiceRouter proxy at 7892.
-  // Direct fetch to http://localhost:5050 fails in VS Code webviews due to CORS —
-  // Docker containers don't set Access-Control-Allow-Origin headers.
-  // The proxy at 7892 runs in Node.js (no CORS) and also scans ports 5050-5059.
-  const RVC_PROXY = "http://localhost:7892"
-
+  // kilocode_change: RVC health + voices go through KiloProvider messages (always active).
+  // Direct fetch to http://localhost:5050 fails due to CORS in VS Code webviews.
   const refreshRvc = async () => {
     setRvcLoading(true)
     try {
-      const healthResp = await fetch(`${RVC_PROXY}/rvc/health`)
-      if (healthResp.ok) {
-        const healthData = await healthResp.json() as { ok: boolean; port?: number }
-        setRvcOnline(healthData.ok)
-        // If port scan found a different port, update settings
-        if (healthData.port && healthData.port !== settings().rvc.dockerPort) {
-          updateNested("rvc", "dockerPort", healthData.port)
-        }
-        if (healthData.ok) {
-          const voicesResp = await fetch(`${RVC_PROXY}/rvc/voices`)
-          if (voicesResp.ok) {
-            const voices = await voicesResp.json()
-            setRvcVoices(Array.isArray(voices) ? voices : [])
+      const healthId = Math.random().toString(36).slice(2)
+      const healthResult = await new Promise<{ ok: boolean; port?: number }>((resolve) => {
+        const unsub = vscode.onMessage((m: ExtensionMessage) => {
+          const mm = m as unknown as Record<string, unknown>
+          if (mm.type === "rvcHealthResult" && mm.id === healthId) {
+            unsub()
+            resolve({ ok: Boolean(mm.ok), port: mm.port as number | undefined })
           }
+        })
+        vscode.postMessage({ type: "rvcHealth", id: healthId })
+      })
+      setRvcOnline(healthResult.ok)
+      if (healthResult.port && healthResult.port !== settings().rvc.dockerPort) {
+        updateNested("rvc", "dockerPort", healthResult.port)
+      }
+      if (healthResult.ok) {
+        const voicesId = Math.random().toString(36).slice(2)
+        const voicesResult = await new Promise<{ ok: boolean; body?: string }>((resolve) => {
+          const unsub = vscode.onMessage((m: ExtensionMessage) => {
+            const mm = m as unknown as Record<string, unknown>
+            if (mm.type === "rvcVoicesResult" && mm.id === voicesId) {
+              unsub()
+              resolve({ ok: Boolean(mm.ok), body: mm.body as string | undefined })
+            }
+          })
+          vscode.postMessage({ type: "rvcVoices", id: voicesId })
+        })
+        if (voicesResult.ok && voicesResult.body) {
+          try {
+            const voices = JSON.parse(voicesResult.body)
+            setRvcVoices(Array.isArray(voices) ? voices : [])
+          } catch { setRvcVoices([]) }
         }
       } else {
-        setRvcOnline(false)
         setRvcVoices([])
       }
     } catch {

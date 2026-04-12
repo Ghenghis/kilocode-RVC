@@ -926,6 +926,47 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           void this.handleAutoSetupRvc()
           break
         }
+
+        // kilocode_change: RVC health + synthesis routed through KiloProvider (always active).
+        // Webviews cannot fetch http://localhost directly due to CORS. KiloProvider runs in
+        // Node.js (no CORS) and is always alive, unlike VoiceStudioProvider which only starts
+        // when the panel is opened.
+        case "rvcHealth": {
+          const reqId = (message as { id?: string }).id ?? ""
+          const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const configuredPort = speech.get<number>("rvc.dockerPort", 5050)
+          void this.rvcFindPort(configuredPort).then((port) => {
+            this.postMessage({ type: "rvcHealthResult", id: reqId, ok: port !== null, port: port ?? undefined })
+          })
+          break
+        }
+
+        case "rvcVoices": {
+          const reqId = (message as { id?: string }).id ?? ""
+          const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const port = this._rvcWorkingPort ?? speech.get<number>("rvc.dockerPort", 5050)
+          void this.rvcHttpGet(`http://127.0.0.1:${port}/voices`).then((body) => {
+            this.postMessage({ type: "rvcVoicesResult", id: reqId, ok: true, body })
+          }).catch((err: unknown) => {
+            this.postMessage({ type: "rvcVoicesResult", id: reqId, ok: false, error: String(err) })
+          })
+          break
+        }
+
+        case "rvcSynthesize": {
+          const { id: synthId, text: synthText, voiceId, edgeVoice, pitchShift } =
+            message as { id: string; text: string; voiceId: string; edgeVoice: string; pitchShift: number }
+          const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const port = this._rvcWorkingPort ?? speech.get<number>("rvc.dockerPort", 5050)
+          const body = JSON.stringify({ text: synthText, voice_id: voiceId, edge_voice: edgeVoice, pitch_shift: pitchShift })
+          void this.rvcHttpPostBinary(`http://127.0.0.1:${port}/synthesize`, body).then((buf) => {
+            // Send as base64 — webview decodes to Blob
+            this.postMessage({ type: "rvcSynthesizeResult", id: synthId, ok: true, audioBase64: buf.toString("base64") })
+          }).catch((err: unknown) => {
+            this.postMessage({ type: "rvcSynthesizeResult", id: synthId, ok: false, error: String(err) })
+          })
+          break
+        }
         case "requestTimelineSetting":
           this.sendTimelineSetting()
           break
@@ -2301,6 +2342,80 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         interruptOnType: speech.get<boolean>("interruptOnType", true),
         multiVoiceMode: speech.get<boolean>("multiVoiceMode", false),
       },
+    })
+  }
+
+  // kilocode_change: cached working RVC port found by rvcFindPort()
+  private _rvcWorkingPort: number | undefined
+
+  // kilocode_change: scan ports 5050–5059 for a live RVC container using Node.js http module.
+  private async rvcFindPort(configuredPort: number): Promise<number | null> {
+    const candidates = [configuredPort, ...Array.from({ length: 10 }, (_, i) => 5050 + i).filter((p) => p !== configuredPort)]
+    for (const port of candidates) {
+      try {
+        const body = await this.rvcHttpGet(`http://127.0.0.1:${port}/health`)
+        if (body.length > 0) {
+          this._rvcWorkingPort = port
+          if (port !== configuredPort) {
+            console.log(`[Kilo RVC] Container found on port ${port} (configured: ${configuredPort})`)
+          }
+          return port
+        }
+      } catch {
+        // not on this port — continue
+      }
+    }
+    this._rvcWorkingPort = undefined
+    return null
+  }
+
+  // kilocode_change: Node.js http GET for RVC proxy — no CORS, no fetch() dependency
+  private rvcHttpGet(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const lib = require("http") as typeof import("http")
+      const req = lib.get(url, { timeout: 3000 }, (res) => {
+        const chunks: Buffer[] = []
+        res.on("data", (c: Buffer) => chunks.push(c))
+        res.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")))
+        res.on("error", reject)
+      })
+      req.on("error", reject)
+      req.on("timeout", () => { req.destroy(); reject(new Error("RVC health check timeout")) })
+    })
+  }
+
+  // kilocode_change: Node.js http POST binary for RVC synthesis proxy
+  private rvcHttpPostBinary(url: string, body: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const lib = require("http") as typeof import("http")
+      const parsed = new URL(url)
+      const opts: import("http").RequestOptions = {
+        hostname: parsed.hostname,
+        port: Number(parsed.port),
+        path: parsed.pathname,
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        timeout: 30000,
+      }
+      const req = lib.request(opts, (res) => {
+        const chunks: Buffer[] = []
+        res.on("data", (c: Buffer) => chunks.push(c))
+        res.on("end", () => {
+          const buf = Buffer.concat(chunks)
+          if (res.statusCode === 404) {
+            reject(new Error("Voice model not found in container"))
+          } else if ((res.statusCode ?? 200) >= 400) {
+            reject(new Error(`RVC synthesis HTTP ${res.statusCode}: ${buf.toString("utf-8").slice(0, 200)}`))
+          } else {
+            resolve(buf)
+          }
+        })
+        res.on("error", reject)
+      })
+      req.on("error", reject)
+      req.on("timeout", () => { req.destroy(); reject(new Error("RVC synthesis timeout")) })
+      req.write(body)
+      req.end()
     })
   }
 

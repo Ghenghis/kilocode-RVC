@@ -1523,6 +1523,9 @@ export type ExtensionMessage =
   | VoiceStudioStateMessage
   | DiskUsageMessage
   | RvcSetupProgressMessage
+  | RvcHealthResultMessage
+  | RvcVoicesResultMessage
+  | RvcSynthesizeResultMessage
   | DebugModeEnabledMessage
   | SettingUpdatedMessage
 
@@ -1881,6 +1884,57 @@ export interface KiloDebugConsoleMessage {
 /** Trigger automated Docker RVC setup from the settings panel (webview → extension) */
 export interface AutoSetupRvcMessage {
   type: "autoSetupRvc"
+}
+
+// kilocode_change: RVC message-bridge types — route through KiloProvider (no CORS)
+
+/** webview → extension: check if RVC Docker is reachable (scans ports 5050-5059) */
+export interface RvcHealthMessage {
+  type: "rvcHealth"
+  id: string
+}
+
+/** extension → webview: result of RVC health check */
+export interface RvcHealthResultMessage {
+  type: "rvcHealthResult"
+  id: string
+  ok: boolean
+  port?: number
+  error?: string
+}
+
+/** webview → extension: list voices from running RVC container */
+export interface RvcVoicesMessage {
+  type: "rvcVoices"
+  id: string
+}
+
+/** extension → webview: voices JSON body from RVC container */
+export interface RvcVoicesResultMessage {
+  type: "rvcVoicesResult"
+  id: string
+  ok: boolean
+  body?: string
+  error?: string
+}
+
+/** webview → extension: synthesize speech via RVC Docker */
+export interface RvcSynthesizeMessage {
+  type: "rvcSynthesize"
+  id: string
+  text: string
+  voiceId: string
+  edgeVoice: string
+  pitchShift: number
+}
+
+/** extension → webview: base64-encoded WAV audio from RVC synthesis */
+export interface RvcSynthesizeResultMessage {
+  type: "rvcSynthesizeResult"
+  id: string
+  ok: boolean
+  audioBase64?: string
+  error?: string
 }
 
 /** Progress update during automated RVC Docker setup (extension → webview) */
@@ -2666,6 +2720,9 @@ export type WebviewMessage =
   | VoiceCommandMessage
   | RequestVoiceStudioStateMessage
   | AutoSetupRvcMessage
+  | RvcHealthMessage
+  | RvcVoicesMessage
+  | RvcSynthesizeMessage
 
 // ============================================
 // VS Code API type
