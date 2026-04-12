@@ -17,6 +17,7 @@ import { ViewToggle } from "./components/ViewToggle"
 import { VoiceCard } from "./components/VoiceCard"
 import { VoiceRow } from "./components/VoiceRow"
 import { AudioPlayer } from "./components/AudioPlayer"
+import { OperationsDashboard, type OperationState } from "../src/components/operations"
 
 interface VscodeApi {
   postMessage(msg: Record<string, unknown>): void
@@ -39,6 +40,9 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
   const [savedSearches, setSavedSearches] = createSignal<SavedSearch[]>([])
   const [interactionMode, setInteractionMode] = createSignal<InteractionMode>("silent")
   const [activeVoiceId, setActiveVoiceId] = createSignal<string | null>(null)
+
+  // Operations tracking
+  const [operations, setOperations] = createSignal<OperationState[]>([])
 
   // Debug mode
   const [debugMode, setDebugMode] = createSignal(false)
@@ -331,6 +335,81 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
         if (msg.success) {
           send({ type: "fetchVoiceLibrary" })
         }
+        break
+      }
+
+      // ── Operations Tracker messages ──────────────────────────────────
+      case "operationStarted": {
+        const op: OperationState = {
+          id: msg.id as string,
+          taskType: msg.taskType as string,
+          label: msg.label as string,
+          status: "active",
+          startedAt: Date.now(),
+          steps: msg.steps as OperationState["steps"],
+          currentStep: msg.currentStep as number | undefined,
+          estimatedMs: msg.estimatedMs as number | undefined,
+        }
+        setOperations((prev) => [...prev.filter((o) => o.id !== op.id), op])
+        break
+      }
+      case "operationProgress": {
+        setOperations((prev) =>
+          prev.map((op) =>
+            op.id === msg.id
+              ? {
+                  ...op,
+                  percent: (msg.percent as number) ?? op.percent,
+                  receivedBytes: (msg.receivedBytes as number) ?? op.receivedBytes,
+                  totalBytes: (msg.totalBytes as number) ?? op.totalBytes,
+                  bytesPerSecond: (msg.bytesPerSecond as number) ?? op.bytesPerSecond,
+                  elapsedMs: (msg.elapsedMs as number) ?? op.elapsedMs,
+                  estimatedMs: (msg.estimatedMs as number) ?? op.estimatedMs,
+                  steps: (msg.steps as OperationState["steps"]) ?? op.steps,
+                  currentStep: (msg.currentStep as number) ?? op.currentStep,
+                  detail: (msg.detail as string) ?? op.detail,
+                }
+              : op,
+          ),
+        )
+        break
+      }
+      case "operationCompleted": {
+        setOperations((prev) =>
+          prev.map((op) =>
+            op.id === msg.id
+              ? {
+                  ...op,
+                  status: "completed" as const,
+                  completedAt: Date.now(),
+                  durationMs: msg.durationMs as number,
+                  steps: (msg.steps as OperationState["steps"]) ?? op.steps,
+                }
+              : op,
+          ),
+        )
+        // Auto-remove completed operations after 8 seconds
+        setTimeout(() => {
+          setOperations((prev) => prev.filter((o) => o.id !== msg.id))
+        }, 8000)
+        break
+      }
+      case "operationFailed": {
+        setOperations((prev) =>
+          prev.map((op) =>
+            op.id === msg.id
+              ? {
+                  ...op,
+                  status: "failed" as const,
+                  completedAt: Date.now(),
+                  error: msg.error as string,
+                  retryable: msg.retryable as boolean,
+                  durationMs: msg.durationMs as number,
+                  steps: (msg.steps as OperationState["steps"]) ?? op.steps,
+                }
+              : op,
+          ),
+        )
         break
       }
     }
@@ -673,6 +752,12 @@ export const App: Component<{ vscode: VscodeApi }> = (props) => {
           onStop={stopAudio}
         />
       </Show>
+
+      {/* Operations Dashboard — shows real-time progress for downloads, installs, etc. */}
+      <OperationsDashboard
+        operations={operations()}
+        onDismiss={(id) => setOperations((prev) => prev.filter((o) => o.id !== id))}
+      />
 
       {/* Debug panel */}
       <Show when={debugMode()}>
