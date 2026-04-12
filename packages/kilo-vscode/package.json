@@ -2,7 +2,7 @@
   "name": "kilo-code",
   "displayName": "Kilo Code: AI Coding Agent, Copilot, and Autocomplete",
   "description": "Open Source AI coding agent that generates code from natural language, automates tasks, and runs terminal commands. Features inline autocomplete, browser automation, automated refactoring, and custom modes for planning, coding, and debugging. Supports 500+ AI models including Claude (Anthropic), Gemini, Grok, GPT, Codex and GLM.",
-  "version": "7.2.1",
+  "version": "7.2.2",
   "icon": "assets/icons/logo-outline-black.png",
   "galleryBanner": {
     "color": "#FFFFFF",
@@ -800,7 +800,11 @@
         "kilo-code.new.speech.provider": {
           "type": "string",
           "default": "browser",
-          "enum": ["browser", "azure", "rvc"],
+          "enum": [
+            "browser",
+            "azure",
+            "rvc"
+          ],
           "description": "TTS provider: browser (Web Speech API), azure (Azure Neural TTS), or rvc (Docker RVC)."
         },
         "kilo-code.new.speech.volume": {
@@ -859,21 +863,25 @@
         },
         "kilo-code.new.speech.browser.rate": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0.5,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Browser speech rate."
         },
         "kilo-code.new.speech.browser.pitch": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "minimum": 0.5,
-          "maximum": 2.0,
+          "maximum": 2,
           "description": "Browser speech pitch."
         },
         "kilo-code.new.speech.interactionMode": {
           "type": "string",
-          "enum": ["silent", "assist", "handsfree"],
+          "enum": [
+            "silent",
+            "assist",
+            "handsfree"
+          ],
           "default": "silent",
           "markdownDescription": "Voice interaction mode: silent (no speech), assist (auto-speak responses), handsfree (full bidirectional voice control)"
         },
