@@ -1,0 +1,20 @@
+Executes a command on a remote server via SSH.
+
+Connects to the specified host using SSH key-based or agent-based authentication and runs the given command. Returns the combined stdout and stderr output along with the exit code.
+
+Parameters:
+  - host (required): The remote host in user@host or user@host:port format
+  - command (required): The command to execute on the remote server
+  - keyFile (optional): Path to an SSH private key file for authentication
+  - timeout (optional): Command timeout in milliseconds (default: 60000)
+  - port (optional): SSH port override (default: 22)
+  - strictHostKey (optional): Host key verification policy — "accept-new" (default), "yes" (strict, requires known_hosts entry), or "no" (skip verification)
+
+Usage notes:
+  - Host must be in user@host format (e.g., deploy@192.168.1.10 or admin@myserver.com)
+  - Commands are executed in the default login shell on the remote server
+  - SSH host key verification defaults to accept-new: new hosts are accepted and remembered, changed keys are rejected. Use strictHostKey: "yes" for production servers where host keys should already be in known_hosts
+  - Connection timeout is fixed at 10 seconds; the timeout parameter controls command execution time
+  - For long-running commands, increase the timeout parameter
+  - If a key file is specified, it must be an absolute path to a valid SSH private key
+  - Use this tool instead of running ssh via the bash tool for better output handling and security validation

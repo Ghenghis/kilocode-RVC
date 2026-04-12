@@ -1,0 +1,23 @@
+Manages Docker containers, images, and compose services.
+
+Supports a wide range of Docker operations including running, stopping, inspecting, and managing containers, as well as building and pulling images and orchestrating multi-service applications with Docker Compose.
+
+Parameters:
+  - action (required): The Docker operation to perform. One of:
+    - Container: "run", "stop", "restart", "rm", "logs", "exec", "inspect", "ps"
+    - Image: "build", "pull", "push"
+    - Compose: "compose-up", "compose-down", "compose-ps", "compose-logs"
+  - target (required): Container name/ID, image name, or compose file path depending on the action
+  - options (optional): Additional CLI flags to pass to the Docker command (e.g., "-d --name myapp" for run)
+  - command (optional): Command to execute inside a container (used with "exec" and "run" actions)
+  - host (optional): Remote Docker host for executing commands on a remote server (e.g., "user@server.com")
+
+Usage notes:
+  - For "run", target is the image name. Use options for flags like "-d", "--name", "-p", "-v"
+  - For "exec", target is the container name/ID and command is required
+  - For "compose-*" actions, target is the path to the compose file or project directory
+  - For "build", target is the build context path. Use options for flags like "-t myimage:latest"
+  - The host parameter sets DOCKER_HOST=ssh://host for remote Docker daemon access
+  - Container logs default to the last 100 lines. Use options to override (e.g., "--tail 500" or "--follow")
+  - Use "ps" to list running containers, or pass options "-a" to include stopped containers
+  - Prefer compose files for multi-service setups over manual container management

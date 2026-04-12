@@ -1482,6 +1482,8 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          infra_tools: z.boolean().optional().describe("Enable infrastructure tools (SSH, Docker, Deploy)"), // kilocode_change
+          agent_router: z.boolean().optional().describe("Enable automatic agent routing based on message content"), // kilocode_change
         })
         .optional(),
     })
