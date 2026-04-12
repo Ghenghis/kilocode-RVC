@@ -1482,6 +1482,7 @@ export namespace Config {
             .positive()
             .optional()
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
+          infra_tools: z.boolean().optional().describe("Enable infrastructure tools (SSH, Docker, Deploy)"), // kilocode_change
         })
         .optional(),
     })
