@@ -14,6 +14,9 @@ export function getVSCodeAPI(): VSCodeAPI {
     // In VS Code webview, acquireVsCodeApi is available globally
     if (typeof acquireVsCodeApi === "function") {
       vscodeApi = acquireVsCodeApi()
+      // Expose globally so the console bridge script (injected into the HTML) can flush
+      // buffered console messages once the API is available.
+      ;(window as unknown as Record<string, unknown>).__kiloVsCode = vscodeApi
     } else {
       // Mock for development/testing outside VS Code
       console.warn("[Kilo New] Running outside VS Code, using mock API")

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import * as path from "path"
 import * as vscode from "vscode"
 import { z } from "zod"
@@ -121,7 +122,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   private loginAttempt = 0
   private isWebviewReady = false
   private readonly extensionVersion =
-    vscode.extensions.getExtension("kilocode.kilo-code")?.packageJSON?.version ?? "unknown"
+    (vscode.extensions.getExtension("kilocode.kilo-code")?.packageJSON?.version ?? "unknown") + " SE"
   /** Cached providersLoaded payload so requestProviders can be served before client is ready */
   private cachedProvidersMessage: unknown = null
   /** Coalesce provider refreshes — at most one follow-up rerun when a request lands mid-flight. */
@@ -191,6 +192,27 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   /** Optional interceptor called before the standard message handler.
    *  Return null to consume the message, or return a (possibly transformed) message. */
   private onBeforeMessage: ((msg: Record<string, unknown>) => Promise<Record<string, unknown> | null>) | null = null
+
+  /** Optional debug hooks called for every message in/out — set by DebugCollector when debug mode is active. */
+  private debugHook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null = null
+
+  /** Attach or remove the debug interceptor (called by extension.ts when kilo-code.debugMode changes). */
+  public setDebugHook(hook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null): void {
+    this.debugHook = hook
+  }
+
+  /**
+   * Called by extension.ts when debug mode is enabled mid-session.
+   * Posts "debugModeEnabled" to the webview so it:
+   *   1. Activates the always-present console bridge (window.__kiloEnableDebugConsole)
+   *   2. Re-emits its initialization state (webviewReady + key requests) for full debug capture.
+   * Safe to call at any time — silently ignored when webview is not yet ready.
+   */
+  public requestDebugStateSync(): void {
+    if (this.webview && this.isWebviewReady) {
+      this.postMessage({ type: "debugModeEnabled" })
+    }
+  }
 
   /** Handler for "Continue in Worktree" — set by extension.ts to delegate to AgentManagerProvider. */
   private continueInWorktreeHandler:
@@ -481,6 +503,9 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   private setupWebviewMessageHandler(webview: vscode.Webview): void {
     this.webviewMessageDisposable?.dispose()
     this.webviewMessageDisposable = webview.onDidReceiveMessage(async (message) => {
+      // Debug hook — record every incoming message
+      this.debugHook?.in?.(message as Record<string, unknown>)
+
       // Run interceptor if attached (e.g., AgentManagerProvider worktree logic)
       if (this.onBeforeMessage) {
         try {
@@ -832,6 +857,30 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         case "requestSpeechSettings":
           this.sendSpeechSettings()
           break
+        case "openVoiceStudio":
+          vscode.commands.executeCommand("kilo-code.new.openVoiceStudio")
+          break
+        case "setVoiceStudioDebug": {
+          const enabled = !!(message as { enabled?: boolean }).enabled
+          await vscode.workspace
+            .getConfiguration("kilo-code.new.speech")
+            .update("debugMode", enabled, vscode.ConfigurationTarget.Global)
+          break
+        }
+        case "setKiloDebugMode": {
+          const enabled = !!(message as { enabled?: boolean }).enabled
+          await vscode.workspace
+            .getConfiguration()
+            .update("kilo-code.debugMode", enabled, vscode.ConfigurationTarget.Global)
+          break
+        }
+        case "kiloDebugConsole": {
+          // Webview console bridge — forwarded by the console override script injected into the webview HTML
+          const { level, args } = message as { level?: string; args?: unknown[] }
+          const { DebugCollector } = await import("./services/debug/DebugCollector")
+          DebugCollector.getInstance().recordConsole("KiloProvider-webview", level ?? "log", args ?? [])
+          break
+        }
         case "downloadRvcModel": {
           const { url, name } = message as { url: string; name: string; type: string }
           const config = vscode.workspace.getConfiguration("kilo-code.new.speech")
@@ -842,25 +891,39 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
             const resp = await fetch(url)
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
             const buffer = Buffer.from(await resp.arrayBuffer())
-            const fs = await import("fs")
-            const path = await import("path")
-            const os = await import("os")
-            const tmpFile = path.join(os.tmpdir(), `${name}.pth`)
-            fs.writeFileSync(tmpFile, buffer)
-            // Copy to Docker volume via docker cp
-            const { exec } = await import("child_process")
-            exec(`docker cp "${tmpFile}" edge-tts-server:/models/${name}.pth`, (err) => {
-              if (err) {
-                console.error("[Kilo New] Failed to copy model to Docker:", err)
-              } else {
-                console.log(`[Kilo New] Model ${name}.pth installed to Docker container`)
-                // Clean up temp file
-                try { fs.unlinkSync(tmpFile) } catch {}
+            const fsModule = await import("fs")
+            const osModule = await import("os")
+            const tmpFile = path.join(osModule.tmpdir(), `${name}.pth`)
+            fsModule.writeFileSync(tmpFile, buffer)
+            // Resolve the container name dynamically (kilocode-rvc-{port} or edge-tts-server)
+            const { exec: execCp } = await import("child_process")
+            const containerName = `kilocode-rvc-${port}`
+            // Try new-style first, fall back to legacy
+            const tryContainer = (cname: string): Promise<void> =>
+              new Promise((resolve, reject) => {
+                execCp(`docker cp "${tmpFile}" ${cname}:/models/${name}.pth`, (err) => {
+                  if (err) reject(err)
+                  else resolve()
+                })
+              })
+            try {
+              await tryContainer(containerName)
+            } catch {
+              try { await tryContainer("edge-tts-server") } catch (fallbackErr) {
+                console.error("[Kilo New] Failed to copy model to Docker:", fallbackErr)
+                try { fsModule.unlinkSync(tmpFile) } catch {}
+                break
               }
-            })
+            }
+            console.log(`[Kilo New] Model ${name}.pth installed to Docker container`)
+            try { fsModule.unlinkSync(tmpFile) } catch {}
           } catch (e) {
             console.error("[Kilo New] RVC model download failed:", e)
           }
+          break
+        }
+        case "autoSetupRvc": {
+          void this.handleAutoSetupRvc()
           break
         }
         case "requestTimelineSetting":
@@ -2213,6 +2276,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         autoSpeak: speech.get<boolean>("autoSpeak", false),
         provider: speech.get<string>("provider", "browser") as "rvc" | "azure" | "browser",
         volume: speech.get<number>("volume", 80),
+        interactionMode: speech.get<string>("interactionMode", "silent") as "silent" | "assist" | "handsfree",
         rvc: {
           voiceId: speech.get<string>("rvc.voiceId", ""),
           dockerPort: speech.get<number>("rvc.dockerPort", 5050),
@@ -2221,7 +2285,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           modelServerUrl: speech.get<string>("rvc.modelServerUrl", "https://voice.daveai.tech"),
         },
         azure: {
-          region: speech.get<string>("azure.region", "eastus"),
+          region: speech.get<string>("azure.region", "westus"),
           apiKey: speech.get<string>("azure.apiKey", ""),
           voiceId: speech.get<string>("azure.voiceId", "en-US-JennyNeural"),
         },
@@ -2230,8 +2294,252 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
           rate: speech.get<number>("browser.rate", 1.0),
           pitch: speech.get<number>("browser.pitch", 1.0),
         },
+        debugMode: speech.get<boolean>("debugMode", false),
+        kiloDebugMode: vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false),
       },
     })
+  }
+
+  /**
+   * Automated Docker RVC setup: check Docker, scan for a free port (5050-5150),
+   * pull the image, start the container, wait for health, then load voices.
+   * Progress is streamed back to the webview via rvcSetupProgress messages.
+   */
+  private async handleAutoSetupRvc(): Promise<void> {
+    const send = (step: string, detail?: string, opts?: { error?: string; done?: boolean; port?: number; voices?: Array<{ id: string; sizeMB: number }> }) => {
+      this.postMessage({ type: "rvcSetupProgress", step, detail, ...opts })
+    }
+
+    const { exec } = await import("child_process")
+    const net = await import("net")
+
+    const run = (cmd: string, timeoutMs = 120000): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((resolve, reject) => {
+        exec(cmd, { timeout: timeoutMs }, (err, stdout, stderr) => {
+          if (err) reject(Object.assign(err, { stderr }))
+          else resolve({ stdout: stdout.toString(), stderr: stderr.toString() })
+        })
+      })
+
+    const isPortFree = (port: number): Promise<boolean> =>
+      new Promise((resolve) => {
+        const srv = net.createServer()
+        srv.once("error", () => resolve(false))
+        srv.once("listening", () => srv.close(() => resolve(true)))
+        srv.listen(port, "127.0.0.1")
+      })
+
+    const waitForHealth = async (port: number, timeoutMs = 60000): Promise<boolean> => {
+      const deadline = Date.now() + timeoutMs
+      while (Date.now() < deadline) {
+        try {
+          const resp = await fetch(`http://localhost:${port}/health`)
+          if (resp.ok) return true
+        } catch {}
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+      return false
+    }
+
+    // ── Failsafe helper: check if a Docker image exists locally ──────────
+    const hasLocalImage = async (imageName: string): Promise<boolean> => {
+      try {
+        await run(`docker inspect --type=image ${imageName}`)
+        return true
+      } catch { return false }
+    }
+
+    // ── Failsafe helper: find any already-running kilocode-rvc container ──
+    const findRunningContainer = async (): Promise<{ port: number; name: string } | null> => {
+      try {
+        const { stdout } = await run(`docker ps --filter "name=kilocode-rvc" --format "{{.Names}}|{{.Ports}}"`)
+        for (const line of stdout.split("\n").filter(Boolean)) {
+          const [name, ports] = line.split("|")
+          const match = ports?.match(/:(\d+)->5050/)
+          if (match) return { port: parseInt(match[1], 10), name }
+        }
+      } catch { /* no running containers */ }
+      return null
+    }
+
+    // ── Step 1: Check Docker is installed and running ─────────────────────
+    send("Checking Docker…")
+    try {
+      await run("docker info")
+    } catch {
+      send("Docker check failed", "Docker is not installed or not running. Install Docker Desktop and try again.", { error: "Docker unavailable" })
+      return
+    }
+
+    // ── Failsafe: Reuse an already-running kilocode-rvc container ────────
+    const existing = await findRunningContainer()
+    if (existing) {
+      send("Found running container", `Reusing ${existing.name} on port ${existing.port}`)
+      const healthy = await waitForHealth(existing.port, 15000)
+      if (healthy) {
+        send("Server is healthy", `Reusing container ${existing.name}`)
+        let voices: Array<{ id: string; sizeMB: number }> = []
+        try {
+          const resp = await fetch(`http://localhost:${existing.port}/voices`)
+          if (resp.ok) { const raw = await resp.json(); voices = Array.isArray(raw) ? raw : [] }
+        } catch { /* voices fetch non-fatal */ }
+        await vscode.workspace.getConfiguration("kilo-code.new.speech")
+          .update("rvc.dockerPort", existing.port, vscode.ConfigurationTarget.Global)
+        if (voices.length > 0 && !vscode.workspace.getConfiguration("kilo-code.new.speech").get<string>("rvc.voiceId")) {
+          await vscode.workspace.getConfiguration("kilo-code.new.speech")
+            .update("rvc.voiceId", voices[0].id, vscode.ConfigurationTarget.Global)
+        }
+        send("Setup complete!", `Reused running container on port ${existing.port} with ${voices.length} voice(s)`, { done: true, port: existing.port, voices })
+        return
+      }
+      // Container exists but isn't healthy — remove and start fresh
+      send("Container unhealthy, restarting…")
+      await run(`docker rm -f ${existing.name}`).catch(() => {})
+    }
+
+    // ── Step 2: Find a free port in range 5050-5150 ──────────────────────
+    send("Finding available port…")
+    let port: number | undefined
+    for (let p = 5050; p <= 5150; p++) {
+      if (await isPortFree(p)) { port = p; break }
+    }
+    if (!port) {
+      send("No free port found", "All ports 5050-5150 are in use.", { error: "No free port" })
+      return
+    }
+    send("Port found", `Using port ${port}`)
+
+    // ── Step 3: Docker image — check local cache, then pull, then build ──
+    // Fixed image names: CI/CD pushes to kilocode-rvc-tts (not kilocode-rvc)
+    const IMAGE_GHCR = "ghcr.io/ghenghis/kilocode-rvc-tts:latest"
+    const IMAGE_HUB = "ghenghis/kilocode-rvc-tts:latest"
+    // Also accept the old name in case user has it cached
+    const IMAGE_OLD_GHCR = "ghcr.io/ghenghis/kilocode-rvc:latest"
+    const IMAGE_OLD_HUB = "ghenghis/kilocode-rvc:latest"
+    let imageToUse = IMAGE_GHCR
+
+    // Failsafe 1: Check if ANY compatible image is already cached locally
+    send("Checking local Docker images…")
+    for (const img of [IMAGE_GHCR, IMAGE_HUB, IMAGE_OLD_GHCR, IMAGE_OLD_HUB]) {
+      if (await hasLocalImage(img)) {
+        send("Using cached image", img)
+        imageToUse = img
+        break
+      }
+    }
+
+    // Failsafe 2: If no local image, pull from registries (GHCR → Hub → old names)
+    if (imageToUse === IMAGE_GHCR && !(await hasLocalImage(IMAGE_GHCR))) {
+      send("Pulling Docker image…", IMAGE_GHCR)
+      let pulled = false
+      for (const img of [IMAGE_GHCR, IMAGE_HUB, IMAGE_OLD_GHCR, IMAGE_OLD_HUB]) {
+        try {
+          send("Trying pull…", img)
+          await run(`docker pull ${img}`)
+          imageToUse = img
+          pulled = true
+          send("Pull succeeded", img)
+          break
+        } catch (e: unknown) {
+          const stderr = e instanceof Error && "stderr" in e ? String((e as Record<string, unknown>).stderr).slice(0, 200) : ""
+          send("Pull failed for " + img, stderr || "Network or auth error")
+        }
+      }
+
+      // Failsafe 3: If ALL pulls fail, try building from the local Dockerfile
+      if (!pulled) {
+        send("All remote pulls failed, trying local build…")
+        const ext = vscode.extensions.getExtension("kilocode.kilo-code")
+        const dockerDir = ext ? path.join(ext.extensionPath, "docker", "rvc") : ""
+        let built = false
+        if (dockerDir) {
+          try {
+            const fsModule = await import("fs")
+            const dockerfilePath = path.join(dockerDir, "Dockerfile")
+            if (fsModule.existsSync(dockerfilePath)) {
+              send("Building image from local Dockerfile…", "This may take several minutes")
+              await run(`docker build -t kilocode-rvc-local:latest "${dockerDir}"`, 600000)
+              imageToUse = "kilocode-rvc-local:latest"
+              built = true
+              send("Local build succeeded", imageToUse)
+            }
+          } catch (buildErr: unknown) {
+            const msg = buildErr instanceof Error ? buildErr.message : String(buildErr)
+            send("Local build failed", msg.slice(0, 200))
+          }
+        }
+        if (!built) {
+          send("No image available",
+            "Could not pull or build the RVC image. Ensure Docker is running and try: docker pull ghcr.io/ghenghis/kilocode-rvc-tts:latest",
+            { error: "Pull failed — no image available" })
+          return
+        }
+      }
+    }
+
+    // ── Step 4: Remove stale container, start new one ────────────────────
+    const containerName = `kilocode-rvc-${port}`
+    send("Starting container…", containerName)
+    try {
+      await run(`docker rm -f ${containerName}`).catch(() => {/* ignore if not exists */})
+      await run(`docker run -d --restart=unless-stopped -p ${port}:5050 --name ${containerName} ${imageToUse}`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      // Failsafe: If container exists from a previous run, try to start it
+      try {
+        send("Retrying with existing container…")
+        await run(`docker start ${containerName}`)
+      } catch {
+        send("Container start failed", msg, { error: "Start failed" })
+        return
+      }
+    }
+
+    // ── Step 5: Wait for health endpoint (with extended timeout) ─────────
+    send("Waiting for server to start…", "This can take up to 90 seconds on first launch")
+    const healthy = await waitForHealth(port, 90000)
+    if (!healthy) {
+      // Failsafe: Try restarting the container once
+      send("Server slow to start, restarting container…")
+      try {
+        await run(`docker restart ${containerName}`)
+        const retryHealthy = await waitForHealth(port, 60000)
+        if (!retryHealthy) {
+          send("Server did not start", `Check: docker logs ${containerName}`, { error: "Timeout after restart" })
+          return
+        }
+      } catch {
+        send("Server did not start in time", `Container may have crashed. Run: docker logs ${containerName}`, { error: "Timeout" })
+        return
+      }
+    }
+
+    // ── Step 6: Fetch voice list (with retry) ────────────────────────────
+    send("Loading voice models…")
+    let voices: Array<{ id: string; sizeMB: number }> = []
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const resp = await fetch(`http://localhost:${port}/voices`)
+        if (resp.ok) {
+          const raw = await resp.json()
+          voices = Array.isArray(raw) ? raw : []
+          if (voices.length > 0) break
+        }
+      } catch { /* retry */ }
+      if (attempt < 2) await new Promise(r => setTimeout(r, 3000))
+    }
+
+    // ── Step 7: Persist port + auto-select first voice if none set ───────
+    const speechConfig = vscode.workspace.getConfiguration("kilo-code.new.speech")
+    await speechConfig.update("rvc.dockerPort", port, vscode.ConfigurationTarget.Global)
+
+    // Failsafe: Auto-select the first voice model if none is configured
+    if (voices.length > 0 && !speechConfig.get<string>("rvc.voiceId")) {
+      await speechConfig.update("rvc.voiceId", voices[0].id, vscode.ConfigurationTarget.Global)
+      send("Auto-selected voice", voices[0].id)
+    }
+
+    send("Setup complete!", `RVC server running on port ${port} with ${voices.length} voice(s)`, { done: true, port, voices })
   }
 
   private sendTimelineSetting(): void {
@@ -2788,9 +3096,31 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
    * The key uses dot notation relative to `kilo-code.new` (e.g. "browserAutomation.enabled").
    */
   private async handleUpdateSetting(key: string, value: unknown): Promise<void> {
-    const { section, leaf } = buildSettingPath(key)
-    const config = vscode.workspace.getConfiguration(`kilo-code.new${section ? `.${section}` : ""}`)
-    await config.update(leaf, value, vscode.ConfigurationTarget.Global)
+    try {
+      const { section, leaf } = buildSettingPath(key)
+      const config = vscode.workspace.getConfiguration(`kilo-code.new${section ? `.${section}` : ""}`)
+      await config.update(leaf, value, vscode.ConfigurationTarget.Global)
+
+      // Send confirmation back to webview so UI stays in sync
+      // Determine which settings group was updated and resend the full block
+      if (key.startsWith("speech.") || key.startsWith("speech/")) {
+        this.sendSpeechSettings()
+      } else if (key.startsWith("browserAutomation.") || key.startsWith("browserAutomation/")) {
+        this.sendBrowserSettings()
+      } else if (key.startsWith("notification.") || key.startsWith("notification/")) {
+        this.sendNotificationSettings()
+      } else if (key.startsWith("autocomplete.") || key.startsWith("autocomplete/")) {
+        this.sendAutocompleteSettings()
+      } else if (key === "showTaskTimeline") {
+        this.sendTimelineSetting()
+      }
+      // Generic confirmation for any setting
+      this.postMessage({ type: "settingUpdated", key, value, success: true })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({ type: "settingUpdated", key, value, success: false, error: message })
+      vscode.window.showErrorMessage(`Failed to save setting "${key}": ${message}`)
+    }
   }
 
   /**
@@ -3006,6 +3336,9 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   }
   /** Post a message to the webview. Public so toolbar button commands can send messages. */
   public postMessage(message: unknown): void {
+    // Debug hook — record every outgoing message
+    this.debugHook?.out?.(message)
+
     if (!this.webview) {
       const type =
         typeof message === "object" &&
@@ -3219,6 +3552,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
+    const debugMode = vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false)
     return buildWebviewHtml(webview, {
       scriptUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.js")),
       styleUri: webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview.css")),
@@ -3226,6 +3560,7 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
       title: "Kilo Code",
       port: this.connectionService.getServerInfo()?.port,
       extraStyles: `.container { height: 100%; display: flex; flex-direction: column; height: 100vh; border-right: 1px solid var(--border-weak-base); }`,
+      consoleBridge: debugMode,
     })
   }
 

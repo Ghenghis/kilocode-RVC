@@ -33,6 +33,8 @@ import { MigrationWizard } from "./components/migration" // legacy-migration
 import { NotificationsProvider } from "./context/notifications"
 import type { Message as SDKMessage, Part as SDKPart } from "@kilocode/sdk/v2"
 import type { ExtensionMessage } from "./types/messages"
+import { speechPlayback, type SpeechConfig } from "./utils/speech-playback"
+import { filterTextForSpeech, detectSentiment } from "./utils/speech-text-filter"
 import "./styles/chat.css"
 
 type ViewType = "newTask" | "marketplace" | "history" | "profile" | "settings" | "subAgentViewer"
@@ -147,63 +149,58 @@ export const DataBridge: Component<{ children: any }> = (props) => {
 
         // Extract text parts
         const parts = session.allParts()[lastAssistant.id] ?? []
-        const textContent = parts
+        const rawText = parts
           .filter((p: any) => p.type === "text")
           .map((p: any) => p.text)
           .join(" ")
           .trim()
+        if (!rawText) return
+
+        // Smart text filtering — strip markdown, code blocks, URLs, paths
+        // for natural-sounding speech output
+        const textContent = filterTextForSpeech(rawText, "normal")
         if (!textContent) return
 
-        // Speak via browser TTS (runs in webview)
-        const vol = ss.volume / 100
-        if (ss.provider === "browser") {
-          const utterance = new SpeechSynthesisUtterance(textContent.slice(0, 2000))
-          utterance.volume = vol
-          utterance.rate = ss.browser.rate
-          utterance.pitch = ss.browser.pitch
-          if (ss.browser.voiceURI) {
-            const voice = speechSynthesis.getVoices().find((v) => v.voiceURI === ss.browser.voiceURI)
-            if (voice) utterance.voice = voice
-          }
-          speechSynthesis.speak(utterance)
-        } else if (ss.provider === "azure" && ss.azure.apiKey) {
-          const escXml = (s: string) =>
-            s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-          const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><voice name="${ss.azure.voiceId}">${escXml(textContent.slice(0, 2000))}</voice></speak>`
-          fetch(`https://${ss.azure.region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-            method: "POST",
-            headers: {
-              "Ocp-Apim-Subscription-Key": ss.azure.apiKey,
-              "Content-Type": "application/ssml+xml",
-              "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
-            },
-            body: ssml,
+        // Sentiment detection — adjust pitch/rate for emotional context
+        const sentiment = detectSentiment(rawText)
+
+        // Speak via unified SpeechEngine — handles provider validation, synthesis,
+        // playback, and automatic fallback (RVC→Azure→Browser) in one call
+        const config: SpeechConfig = {
+          provider: ss.provider,
+          volume: ss.volume,
+          rvc: ss.rvc,
+          azure: ss.azure,
+          browser: {
+            ...ss.browser,
+            // Apply sentiment-aware pitch/rate modifiers to browser TTS
+            rate: (ss.browser.rate ?? 1) * sentiment.rateModifier,
+            pitch: (ss.browser.pitch ?? 1) + sentiment.pitchModifier * 0.1,
+          },
+        }
+        speechPlayback
+          .speak(textContent, config, "auto-speak")
+          .then((result) => {
+            if (result.usedFallback) {
+              console.warn(`[Speech] Auto-speak fell back from ${ss.provider} → ${result.provider}: ${result.fallbackReason}`)
+            }
+            if (result.error) {
+              console.error(`[Speech] Auto-speak error: ${result.error}`)
+            }
           })
-            .then((r) => r.blob())
-            .then((blob) => {
-              const audio = new Audio(URL.createObjectURL(blob))
-              audio.volume = vol
-              audio.play()
-            })
-            .catch((e) => console.error("[Speech] Azure auto-speak failed:", e))
-        } else if (ss.provider === "rvc") {
-          fetch(`http://localhost:${ss.rvc.dockerPort}/synthesize`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: textContent.slice(0, 2000),
-              voice_id: ss.rvc.voiceId,
-              edge_voice: ss.rvc.edgeVoice || "en-US-AriaNeural",
-              pitch_shift: ss.rvc.pitchShift || 0,
-            }),
-          })
-            .then((r) => r.blob())
-            .then((blob) => {
-              const audio = new Audio(URL.createObjectURL(blob))
-              audio.volume = vol
-              audio.play()
-            })
-            .catch((e) => console.error("[Speech] RVC auto-speak failed:", e))
+          .catch((e) => console.error("[Speech] Auto-speak failed:", e))
+      },
+    ),
+  )
+
+  // ── Real-time interruption: stop speech on session switch ──────────────
+  createEffect(
+    on(
+      () => session.currentSessionID(),
+      (_newId, prevId) => {
+        // When user switches sessions, immediately stop any active speech
+        if (prevId && _newId !== prevId && speechPlayback.isPlaying()) {
+          speechPlayback.stop()
         }
       },
     ),

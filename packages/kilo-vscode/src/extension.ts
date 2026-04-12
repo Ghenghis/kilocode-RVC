@@ -16,6 +16,9 @@ import { TelemetryProxy } from "./services/telemetry"
 import { registerCommitMessageService } from "./services/commit-message"
 import { registerCodeActions, registerTerminalActions, KiloCodeActionProvider } from "./services/code-actions"
 import { registerToggleAutoApprove } from "./commands/toggle-auto-approve"
+import { VoiceStudioProvider } from "./VoiceStudioProvider"
+import { DebugCollector } from "./services/debug/DebugCollector"
+import { registerDebugTestCommand } from "./services/debug/DebugTestSuite"
 
 // Activated via "onStartupFinished" (package.json) so that commands, code actions, keybindings,
 // autocomplete, commit-message generation, and URI deep links all work immediately — without
@@ -28,6 +31,27 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Create shared connection service (one server for all webviews)
   const connectionService = new KiloConnectionService(context)
+
+  // ── E2E Debugger ──────────────────────────────────────────────────────────
+  // Enabled via the "kilo-code.debugMode" VS Code setting.
+  // Captures all webview ↔ extension messages, CLI I/O, and SSE events.
+  // Logs are written to ~/.kilo-debug/ as structured JSONL files.
+  const debugCollector = DebugCollector.getInstance()
+
+  function applyDebugMode(): void {
+    const enabled = vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false)
+    if (enabled && !debugCollector.isEnabled()) {
+      debugCollector.enable(context)
+      connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+      connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
+    } else if (!enabled && debugCollector.isEnabled()) {
+      debugCollector.disable()
+      connectionService.setCliDebugHook(null)
+      connectionService.setSseDebugHook(null)
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Create browser automation service (manages Playwright MCP registration)
   const browserAutomationService = new BrowserAutomationService(connectionService)
@@ -43,6 +67,12 @@ export function activate(context: vscode.ExtensionContext) {
         telemetry.configure(config.baseUrl, config.password)
       }
       AutocompleteServiceManager.getInstance()?.load()
+      // Self-healing: re-attach CLI/SSE debug hooks on every backend reconnect so
+      // a server restart never silently drops debug capture.
+      if (debugCollector.isEnabled()) {
+        connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+        connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
+      }
     }
   })
 
@@ -60,6 +90,36 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Create the provider with shared service
   const provider = new KiloProvider(context.extensionUri, connectionService, context)
+
+  // Wire debug hook for the sidebar provider (and re-apply when debug mode toggles)
+  function attachProviderDebugHook(p: KiloProvider, name: string): void {
+    p.setDebugHook(debugCollector.isEnabled() ? debugCollector.makeProviderHook(name) : null)
+  }
+  attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+
+  // Unified debug mode change handler — one listener does everything: enables/disables
+  // the collector, re-attaches CLI/SSE/provider hooks, syncs tab providers and Voice Studio,
+  // and forces the webview to re-emit its state so mid-session debug enable captures full coverage.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("kilo-code.debugMode")) {
+        applyDebugMode()
+        attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+        for (const [, p] of tabPanels) {
+          p.setDebugHook(debugCollector.isEnabled() ? debugCollector.makeProviderHook("KiloProvider[tab]") : null)
+        }
+        // Sync VoiceStudioProvider debug hook (if panel is currently open)
+        VoiceStudioProvider.getInstance()?.setDebugHook(
+          debugCollector.isEnabled() ? debugCollector.makeProviderHook("VoiceStudioProvider") : null,
+        )
+        // When enabling: force the webview to re-emit its state so the debug log gets
+        // full coverage even if debug mode was toggled after the webview had already loaded.
+        if (debugCollector.isEnabled()) {
+          provider.requestDebugStateSync()
+        }
+      }
+    }),
+  )
 
   // Register the webview view provider for the sidebar.
   // retainContextWhenHidden keeps the webview alive when switching to other sidebar panels.
@@ -177,6 +237,16 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   )
 
+  // Register serializer so Voice Studio panel restores when VS Code restarts
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(VoiceStudioProvider.viewType, {
+      deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        VoiceStudioProvider.restorePanel(context, context.extensionUri, panel)
+        return Promise.resolve()
+      },
+    }),
+  )
+
   // Register toolbar button command handlers
   context.subscriptions.push(
     vscode.commands.registerCommand("kilo-code.new.plusButtonClicked", () => {
@@ -284,6 +354,65 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   )
 
+  // Open Voice Studio panel
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.openVoiceStudio", () => {
+      VoiceStudioProvider.openPanel(context, context.extensionUri)
+    }),
+  )
+
+  // Quick voice switch via command palette
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.switchVoice", async () => {
+      const favorites = context.globalState.get<string[]>("kilocode.voiceFavorites", [])
+      const history = context.globalState.get<{ id: string; timestamp: number }[]>("kilocode.voiceHistory", [])
+
+      const items: vscode.QuickPickItem[] = []
+
+      if (favorites.length > 0) {
+        items.push({ label: "Favorites", kind: vscode.QuickPickItemKind.Separator })
+        for (const fav of favorites) {
+          const [provider, ...rest] = fav.split(":")
+          items.push({ label: `⭐ ${rest.join(":")}`, description: provider, detail: fav })
+        }
+      }
+
+      if (history.length > 0) {
+        items.push({ label: "Recent", kind: vscode.QuickPickItemKind.Separator })
+        for (const h of history.slice(0, 10)) {
+          if (!favorites.includes(h.id)) {
+            const [provider, ...rest] = h.id.split(":")
+            items.push({ label: rest.join(":"), description: provider, detail: h.id })
+          }
+        }
+      }
+
+      items.push({ label: "Open Voice Studio...", description: "Browse all voices", detail: "__open_studio__" })
+
+      const selected = await vscode.window.showQuickPick(items, { placeHolder: "Switch voice..." })
+      if (selected) {
+        if (selected.detail === "__open_studio__") {
+          vscode.commands.executeCommand("kilo-code.new.openVoiceStudio")
+        } else if (selected.detail) {
+          const [provider, ...nameParts] = selected.detail.split(":")
+          const name = nameParts.join(":")
+          const config = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          await config.update("provider", provider, vscode.ConfigurationTarget.Global)
+
+          if (provider === "rvc") {
+            await config.update("rvc.voiceId", name, vscode.ConfigurationTarget.Global)
+          } else if (provider === "azure") {
+            await config.update("azure.voiceId", name, vscode.ConfigurationTarget.Global)
+          } else if (provider === "browser") {
+            await config.update("browser.voiceURI", name, vscode.ConfigurationTarget.Global)
+          }
+
+          vscode.window.showInformationMessage(`Voice switched to: ${name}`)
+        }
+      }
+    }),
+  )
+
   // Register URI handler for session imports (vscode://kilocode.kilo-code/kilocode/s/{sessionId})
   context.subscriptions.push(
     vscode.window.registerUriHandler({
@@ -341,6 +470,45 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   )
 
+  // Register E2E debug log command — opens the JSONL log in a VS Code editor so
+  // developers and AI agents can inspect all captured messages.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("kilo-code.new.openDebugLog", async () => {
+      const logFile = debugCollector.getLogFile()
+      if (!logFile) {
+        void vscode.window.showWarningMessage(
+          "KiloCode Debug: no log file yet. Enable kilo-code.debugMode first.",
+        )
+        return
+      }
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(logFile))
+    }),
+  )
+
+  // Register the comprehensive E2E debug test suite command
+  registerDebugTestCommand(context)
+
+  // Apply debug mode at startup — always attach provider hook unconditionally.
+  // attachProviderDebugHook sets hook to null when disabled, so the conditional is
+  // unnecessary and was causing a timing gap when the setting was already true at launch.
+  applyDebugMode()
+  attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+
+  // Self-healing watchdog: every 30s re-verifies ALL debug hooks are attached.
+  // Covers sidebar, all tab panels, Voice Studio, CLI, and SSE — nothing escapes.
+  const debugWatchdog = setInterval(() => {
+    if (debugCollector.isEnabled()) {
+      connectionService.setCliDebugHook((src, data) => debugCollector.recordCli(src, data))
+      connectionService.setSseDebugHook((eventType, data) => debugCollector.recordSSE(eventType, data))
+      attachProviderDebugHook(provider, "KiloProvider[sidebar]")
+      for (const [, p] of tabPanels) {
+        p.setDebugHook(debugCollector.makeProviderHook("KiloProvider[tab]"))
+      }
+      VoiceStudioProvider.getInstance()?.setDebugHook(debugCollector.makeProviderHook("VoiceStudioProvider"))
+    }
+  }, 30_000)
+  context.subscriptions.push({ dispose: () => clearInterval(debugWatchdog) })
+
   // Dispose services when extension deactivates (kills the server)
   context.subscriptions.push({
     dispose: () => {
@@ -388,8 +556,26 @@ async function openKiloInNewTab(
     agentManagerProvider.continueFromSidebar(sessionId, progress),
   )
   tabProvider.setDiffVirtualProvider(diffVirtualProvider)
+  // Attach debug hook — always (no conditional; setDebugHook with null is a safe no-op)
+  tabProvider.setDebugHook(
+    DebugCollector.getInstance().isEnabled()
+      ? DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]")
+      : null,
+  )
   tabProvider.resolveWebviewPanel(panel)
   tabPanels.set(panel, tabProvider)
+
+  // Keep tab provider debug hook in sync when debug mode is toggled while this tab is open
+  const unsubTabDebug = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration("kilo-code.debugMode")) {
+      tabProvider.setDebugHook(
+        DebugCollector.getInstance().isEnabled()
+          ? DebugCollector.getInstance().makeProviderHook("KiloProvider[tab]")
+          : null,
+      )
+    }
+  })
+  context.subscriptions.push(unsubTabDebug)
 
   // Wait for the new panel to become active before locking the editor group.
   // This avoids the race where VS Code hasn't switched focus yet.
@@ -401,6 +587,7 @@ async function openKiloInNewTab(
       console.log("[Kilo New] Tab panel disposed")
       tabPanels.delete(panel)
       tabProvider.dispose()
+      unsubTabDebug.dispose()
     },
     null,
     context.subscriptions,

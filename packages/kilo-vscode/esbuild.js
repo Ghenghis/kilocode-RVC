@@ -194,6 +194,12 @@ async function main() {
   // Build Diff Virtual webview (lightweight single-file diff for permission approval)
   const diffVirtualCtx = await createBrowserWebviewContext("webview-ui/diff-virtual/index.tsx", "dist/diff-virtual.js")
 
+  // Build Voice Studio webview (SolidJS, voice preview and configuration)
+  const voiceStudioCtx = await createBrowserWebviewContext(
+    "webview-ui/voice-studio/index.tsx",
+    "dist/voice-studio.js",
+  )
+
   // Build webview
   const webviewCtx = await createBrowserWebviewContext("webview-ui/src/index.tsx", "dist/webview.js")
 
@@ -204,6 +210,7 @@ async function main() {
       agentManagerCtx.watch(),
       diffViewerCtx.watch(),
       diffVirtualCtx.watch(),
+      voiceStudioCtx.watch(),
     ])
   } else {
     await Promise.all([
@@ -212,6 +219,7 @@ async function main() {
       agentManagerCtx.rebuild(),
       diffViewerCtx.rebuild(),
       diffVirtualCtx.rebuild(),
+      voiceStudioCtx.rebuild(),
     ])
     await Promise.all([
       extensionCtx.dispose(),
@@ -219,6 +227,7 @@ async function main() {
       agentManagerCtx.dispose(),
       diffViewerCtx.dispose(),
       diffVirtualCtx.dispose(),
+      voiceStudioCtx.dispose(),
     ])
   }
 }

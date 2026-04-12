@@ -1,0 +1,23 @@
+Deploys code to remote servers, rolls back deployments, and checks service health.
+
+Orchestrates the full deployment lifecycle: building locally, transferring files to a remote server via rsync, restarting services, and verifying health. Also supports rollback to the previous release and status checks.
+
+Parameters:
+  - action (required): The deployment operation to perform:
+    - "deploy": Build locally, sync files to server, restart service, and health check
+    - "rollback": Revert to the previous release on the server
+    - "status": Check the current service status on the server
+    - "health-check": Verify the application is responding at the health URL
+  - host (required): The target server in user@host format (e.g., deploy@production.example.com)
+  - path (required): The remote deployment path on the server (e.g., /var/www/myapp)
+  - buildCommand (optional): Local build command to run before deploying (e.g., "npm run build")
+  - restartCommand (optional): Command to restart the service on the remote server (e.g., "pm2 restart app" or "systemctl restart myapp")
+  - healthUrl (optional): HTTP endpoint URL to verify deployment health (e.g., "https://myapp.com/health")
+
+Usage notes:
+  - The deploy action creates timestamped releases in {path}/releases/ and symlinks {path}/current to the latest
+  - Rollback swaps the {path}/current symlink to the previous release directory
+  - The status action runs the restart command with "status" substituted for the action verb, or falls back to checking the process list
+  - Health checks perform an HTTP GET and expect a 2xx response
+  - Always provide a healthUrl when deploying to verify the service is working after restart
+  - Use rsync for file transfer; ensure rsync is installed on both local and remote machines

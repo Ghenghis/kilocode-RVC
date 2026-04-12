@@ -1396,9 +1396,13 @@ export interface SpeechSettingsLoadedMessage {
     autoSpeak: boolean
     provider: "rvc" | "azure" | "browser"
     volume: number
-    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
+    interactionMode: "silent" | "assist" | "handsfree"
+    rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number; modelServerUrl: string }
     azure: { region: string; apiKey: string; voiceId: string }
     browser: { voiceURI: string; rate: number; pitch: number }
+    debugMode: boolean
+    /** Global E2E DebugCollector (kilo-code.debugMode VS Code setting) */
+    kiloDebugMode: boolean
   }
 }
 
@@ -1507,6 +1511,20 @@ export type ExtensionMessage =
   | McpStatusLoadedMessage
   | ClearPendingPromptsMessage
   | ExtensionDataReadyMessage
+  // Voice Studio (extension → webview)
+  | VoiceLibraryLoadedMessage
+  | StoreModelsLoadedMessage
+  | DownloadProgressMessage
+  | DownloadCompleteMessage
+  | DownloadFailedMessage
+  | PreviewAudioReadyMessage
+  | VoiceCommandAckMessage
+  | InteractionModeChangedMessage
+  | VoiceStudioStateMessage
+  | DiskUsageMessage
+  | RvcSetupProgressMessage
+  | DebugModeEnabledMessage
+  | SettingUpdatedMessage
 
 // ============================================
 // Messages FROM webview TO extension
@@ -1833,6 +1851,207 @@ export interface DownloadRvcModelMessage {
   type: "downloadRvcModel"
   url: string
   name: string
+}
+
+// ============================================
+// Voice Studio messages (webview → extension)
+// ============================================
+
+export interface OpenVoiceStudioMessage {
+  type: "openVoiceStudio"
+}
+
+export interface SetVoiceStudioDebugMessage {
+  type: "setVoiceStudioDebug"
+  enabled: boolean
+}
+
+/** Toggle the global E2E DebugCollector (kilo-code.debugMode VS Code setting) */
+export interface SetKiloDebugModeMessage {
+  type: "setKiloDebugMode"
+  enabled: boolean
+}
+
+export interface KiloDebugConsoleMessage {
+  type: "kiloDebugConsole"
+  level: string
+  args: unknown[]
+}
+
+/** Trigger automated Docker RVC setup from the settings panel (webview → extension) */
+export interface AutoSetupRvcMessage {
+  type: "autoSetupRvc"
+}
+
+/** Progress update during automated RVC Docker setup (extension → webview) */
+export interface RvcSetupProgressMessage {
+  type: "rvcSetupProgress"
+  step: string
+  detail?: string
+  error?: string
+  done?: boolean
+  port?: number
+  voices?: Array<{ id: string; sizeMB: number }>
+}
+
+/**
+ * Sent extension → webview when debug mode is enabled mid-session.
+ * Causes the webview to activate the console bridge and re-emit its initialization
+ * state so the debug log gets full E2E coverage without requiring a VS Code restart.
+ */
+export interface DebugModeEnabledMessage {
+  type: "debugModeEnabled"
+}
+
+/** Confirmation sent back after handleUpdateSetting succeeds or fails. */
+export interface SettingUpdatedMessage {
+  type: "settingUpdated"
+  key: string
+  value: unknown
+  success: boolean
+  error?: string
+}
+
+export interface FetchVoiceLibraryMessage {
+  type: "fetchVoiceLibrary"
+}
+
+export interface FetchStoreModelsMessage {
+  type: "fetchStoreModels"
+  page?: number
+  limit?: number
+}
+
+export interface PreviewStoreVoiceMessage {
+  type: "previewStoreVoice"
+  modelId: string
+  text: string
+}
+
+export interface DownloadModelMessage {
+  type: "downloadModel"
+  modelId: string
+  name: string
+  url: string
+  fileSize: number
+}
+
+export interface CancelDownloadMessage {
+  type: "cancelDownload"
+  modelId: string
+}
+
+export interface DeleteModelMessage {
+  type: "deleteModel"
+  modelId: string
+  provider: string
+}
+
+export interface ToggleFavoriteVoiceMessage {
+  type: "toggleFavorite"
+  voiceId: string
+}
+
+export interface SetActiveVoiceMessage {
+  type: "setActiveVoice"
+  voiceId: string
+  provider: string
+}
+
+export interface SaveSearchMessage {
+  type: "saveSearch"
+  name: string
+  query: string
+  filters: import("./voice").FilterState
+}
+
+export interface DeleteSavedSearchMessage {
+  type: "deleteSavedSearch"
+  name: string
+}
+
+export interface SwitchInteractionModeMessage {
+  type: "switchInteractionMode"
+  mode: import("./voice").InteractionMode
+}
+
+export interface VoiceCommandMessage {
+  type: "voiceCommand"
+  command: string
+  transcript: string
+}
+
+export interface RequestVoiceStudioStateMessage {
+  type: "requestVoiceStudioState"
+}
+
+// ============================================
+// Voice Studio messages (extension → webview)
+// ============================================
+
+export interface VoiceLibraryLoadedMessage {
+  type: "voiceLibraryLoaded"
+  voices: import("./voice").VoiceEntry[]
+}
+
+export interface StoreModelsLoadedMessage {
+  type: "storeModelsLoaded"
+  catalog: import("./voice").VoiceCatalogResponse
+}
+
+export interface DownloadProgressMessage {
+  type: "downloadProgress"
+  modelId: string
+  receivedBytes: number
+  totalBytes: number
+  status: import("./voice").DownloadStatus
+}
+
+export interface DownloadCompleteMessage {
+  type: "downloadComplete"
+  modelId: string
+  name: string
+}
+
+export interface DownloadFailedMessage {
+  type: "downloadFailed"
+  modelId: string
+  error: string
+}
+
+export interface PreviewAudioReadyMessage {
+  type: "previewAudioReady"
+  modelId: string
+  audioBase64: string
+  mimeType: string
+}
+
+export interface VoiceCommandAckMessage {
+  type: "voiceCommandAck"
+  command: string
+  success: boolean
+  message?: string
+}
+
+export interface InteractionModeChangedMessage {
+  type: "interactionModeChanged"
+  mode: import("./voice").InteractionMode
+}
+
+export interface VoiceStudioStateMessage {
+  type: "voiceStudioState"
+  favorites: string[]
+  recentSearches: string[]
+  savedSearches: import("./voice").SavedSearch[]
+  interactionMode: import("./voice").InteractionMode
+  activeVoiceId: string | null
+}
+
+export interface DiskUsageMessage {
+  type: "diskUsage"
+  usedBytes: number
+  maxBytes: number
+  modelCount: number
 }
 
 export interface ResetAllSettingsRequest {
@@ -2428,6 +2647,25 @@ export type WebviewMessage =
   | ToggleSectionCollapsedRequest
   | MoveToSectionRequest
   | MoveSectionRequest
+  // Voice Studio (webview → extension)
+  | OpenVoiceStudioMessage
+  | SetVoiceStudioDebugMessage
+  | SetKiloDebugModeMessage
+  | KiloDebugConsoleMessage
+  | FetchVoiceLibraryMessage
+  | FetchStoreModelsMessage
+  | PreviewStoreVoiceMessage
+  | DownloadModelMessage
+  | CancelDownloadMessage
+  | DeleteModelMessage
+  | ToggleFavoriteVoiceMessage
+  | SetActiveVoiceMessage
+  | SaveSearchMessage
+  | DeleteSavedSearchMessage
+  | SwitchInteractionModeMessage
+  | VoiceCommandMessage
+  | RequestVoiceStudioStateMessage
+  | AutoSetupRvcMessage
 
 // ============================================
 // VS Code API type

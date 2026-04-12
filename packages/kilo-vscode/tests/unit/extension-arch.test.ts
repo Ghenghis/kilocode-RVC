@@ -141,7 +141,7 @@ describe("Extension — KiloProvider handler wiring", () => {
   it("openKiloInNewTab wires setContinueInWorktreeHandler before resolveWebviewPanel", () => {
     const fn = ext.indexOf("function openKiloInNewTab")
     expect(fn, "openKiloInNewTab must exist").toBeGreaterThan(-1)
-    const body = ext.slice(fn, fn + 1500)
+    const body = ext.slice(fn, fn + 2000)
     const handler = body.indexOf("setContinueInWorktreeHandler")
     const resolve = body.indexOf("resolveWebviewPanel")
     expect(handler, "setContinueInWorktreeHandler must be called").toBeGreaterThan(-1)

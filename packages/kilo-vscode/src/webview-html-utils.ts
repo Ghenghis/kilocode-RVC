@@ -1,13 +1,17 @@
 /**
  * Build the Content-Security-Policy connect-src directive value.
- * If a port is specified, restricts connections to that port.
- * Otherwise, allows any localhost/127.0.0.1 port.
+ * Always allows any localhost port (for SDK server + RVC Docker on any port)
+ * plus HTTPS (for Azure TTS and other cloud APIs).
+ * If a specific port is given, also adds explicit ws:// entries for that port.
  */
 export function buildConnectSrc(port?: number): string {
+  // Always allow all localhost ports (RVC Docker may run on 5050, 5051, etc.)
+  // and HTTPS for Azure TTS (https://*.tts.speech.microsoft.com)
+  const base = "http://127.0.0.1:* http://localhost:* https:"
   if (port) {
-    return `http://127.0.0.1:${port} http://localhost:${port} ws://127.0.0.1:${port} ws://localhost:${port}`
+    return `${base} ws://127.0.0.1:${port} ws://localhost:${port}`
   }
-  return "http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*"
+  return `${base} ws://127.0.0.1:* ws://localhost:*`
 }
 
 /**
@@ -29,6 +33,7 @@ export function buildCspString(cspSource: string, nonce: string, port?: number):
     `font-src ${cspSource}`,
     `connect-src ${cspSource} ${connectSrc}`,
     `img-src ${cspSource} data: https:`,
+    `media-src blob: data: ${cspSource}`,
   ]
   return joinCspDirectives(directives)
 }

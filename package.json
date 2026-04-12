@@ -10,6 +10,8 @@
     "dev:desktop": "bun --cwd packages/desktop tauri dev",
     "dev:web": "bun --cwd packages/app dev",
     "dev:storybook": "bun --cwd packages/storybook storybook",
+    "dev:kilo-ui-storybook": "bun --cwd packages/kilo-ui storybook",
+    "dev:kilo-docs": "bun --cwd packages/kilo-docs dev",
     "typecheck": "bun turbo typecheck",
     "prepare": "husky",
     "random": "echo 'Random script'",

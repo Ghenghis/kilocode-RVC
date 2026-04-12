@@ -56,6 +56,35 @@ async def list_voices():
     return voices
 
 
+@app.get("/catalog")
+async def catalog():
+    """Return installed voice models in the catalog format expected by VoiceStudioProvider.
+    Response: { voices: [...], total: int }
+    """
+    if not MODELS_DIR.exists():
+        return {"voices": [], "total": 0}
+    voices = []
+    for model_dir in sorted(MODELS_DIR.iterdir()):
+        if not model_dir.is_dir():
+            continue
+        pth_files = list(model_dir.glob("*.pth"))
+        if not pth_files:
+            continue
+        size_bytes = sum(f.stat().st_size for f in model_dir.iterdir() if f.is_file())
+        has_index = any(model_dir.glob("*.index"))
+        voices.append({
+            "id": model_dir.name,
+            "name": model_dir.name.replace("-", " ").title(),
+            "filename": pth_files[0].name,
+            "source": "local",
+            "provider": "rvc",
+            "sizeMB": size_bytes // (1024 * 1024),
+            "sizeBytes": size_bytes,
+            "hasIndex": has_index,
+        })
+    return {"voices": voices, "total": len(voices)}
+
+
 @app.post("/synthesize")
 async def synthesize(req: SynthesizeRequest):
     model_dir = MODELS_DIR / req.voice_id
@@ -100,6 +129,22 @@ async def _edge_tts_to_wav(text: str, voice: str) -> bytes:
         os.unlink(tmp_path)
 
 
+def _detect_model_version(model_path: str) -> str:
+    """Auto-detect RVC model version by checking weight dimensions."""
+    try:
+        state = torch.load(model_path, map_location="cpu")
+        weight = state.get("weight", state)
+        # Check encoder phone embedding dimension
+        emb_key = "enc_p.emb_phone.weight"
+        if emb_key in weight:
+            dim = weight[emb_key].shape[1]
+            if dim == 768:
+                return "v2"
+        return "v1"
+    except Exception:
+        return "v1"
+
+
 def _rvc_convert(input_wav: bytes, model_path: str, index_path: str, pitch_shift: int) -> bytes:
     try:
         from rvc_python.infer import RVCInference
@@ -114,13 +159,32 @@ def _rvc_convert(input_wav: bytes, model_path: str, index_path: str, pitch_shift
         out_path = out.name
 
     try:
+        version = _detect_model_version(model_path)
         rvc = RVCInference(device="cpu")
-        rvc.load_model(model_path, index_path if index_path else None)
-        rvc.infer_file(inp_path, out_path, f0_up_key=pitch_shift)
+        rvc.load_model(model_path, version=version, index_path=index_path if index_path else "")
+        # Set pitch shift via the attribute if supported
+        if pitch_shift != 0 and hasattr(rvc, 'f0_up_key'):
+            rvc.f0_up_key = pitch_shift
+        rvc.infer_file(inp_path, out_path)
         with open(out_path, "rb") as f:
             return f.read()
+    except RuntimeError:
+        # Fallback: if version detection was wrong, try the other version
+        alt_version = "v1" if version == "v2" else "v2"
+        try:
+            rvc2 = RVCInference(device="cpu")
+            rvc2.load_model(model_path, version=alt_version, index_path=index_path if index_path else "")
+            rvc2.infer_file(inp_path, out_path)
+            with open(out_path, "rb") as f:
+                return f.read()
+        except Exception:
+            # Last resort: return original audio without RVC conversion
+            return input_wav
     finally:
-        os.unlink(inp_path)
+        try:
+            os.unlink(inp_path)
+        except FileNotFoundError:
+            pass
         try:
             os.unlink(out_path)
         except FileNotFoundError:

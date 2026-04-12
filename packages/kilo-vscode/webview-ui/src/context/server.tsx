@@ -118,6 +118,18 @@ export const ServerProvider: ParentComponent = (props) => {
           console.log("[Kilo New] Device auth cancelled")
           setDeviceAuth(initialDeviceAuth)
           break
+
+        case "debugModeEnabled":
+          // Activate the always-present console bridge so future console.* calls are captured.
+          // Then re-announce webviewReady so the extension re-sends its current state,
+          // giving the debug log full ext→webview coverage without a VS Code restart.
+          console.log("[Kilo New] Debug mode enabled — activating bridge and re-syncing state")
+          if (typeof (window as unknown as Record<string, unknown>).__kiloEnableDebugConsole === "function") {
+            ;(window as unknown as Record<string, () => void>).__kiloEnableDebugConsole()
+          }
+          vscode.postMessage({ type: "webviewReady" })
+          vscode.postMessage({ type: "requestSpeechSettings" })
+          break
       }
     })
 

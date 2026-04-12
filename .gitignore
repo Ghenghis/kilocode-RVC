@@ -49,3 +49,4 @@ packages/kilo-ui/tests/**/*.png
 packages/kilo-vscode/tests/**/*.png
 *.gif
 *.mp4
+hf-token.txt
