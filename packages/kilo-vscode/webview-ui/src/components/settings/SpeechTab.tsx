@@ -313,6 +313,12 @@ const SpeechTab: Component = () => {
   const [comparing, setComparing] = createSignal(false)
   const handleVoiceCompare = async () => {
     if (comparing()) return
+    // kilocode_change: stop any active preview before starting comparison
+    // to prevent two providers playing simultaneously
+    if (previewing()) {
+      stopPlayback()
+      setPreviewing(false)
+    }
     setComparing(true)
     const text = previewText() || "Hello, this is a voice comparison test."
     const config = toEngineConfig(settings())
@@ -647,7 +653,7 @@ const SpeechTab: Component = () => {
             style={{ ...inputStyle, width: "100%", resize: "vertical", "font-family": "inherit", "font-size": "12px", "box-sizing": "border-box", padding: "8px" }}
             placeholder={language.t("settings.speech.preview.placeholder")} />
           <div style={{ "margin-top": "8px", display: "flex", "align-items": "center", gap: "8px", "flex-wrap": "wrap" }}>
-            <Button variant="secondary" size="small" onClick={() => void handlePreview()} disabled={!previewText().trim()}>
+            <Button variant="secondary" size="small" onClick={() => void handlePreview()} disabled={comparing() || !previewText().trim()}>
               {previewing() ? language.t("settings.speech.preview.stop") : language.t("settings.speech.preview.play")}
             </Button>
             <Button variant="secondary" size="small" onClick={() => void handleVoiceCompare()} disabled={comparing() || !previewText().trim()}>
@@ -678,14 +684,28 @@ const SpeechTab: Component = () => {
               <span style={{ color: "var(--vscode-descriptionForeground)", "flex-shrink": "0" }}>{entry.time}</span>
               <span style={{
                 "font-weight": "500", "flex-shrink": "0",
-                color: entry.status === "OK" ? "var(--vscode-testing-iconPassed)" : entry.status.startsWith("Error") ? "var(--vscode-errorForeground, #f44)" : "var(--vscode-foreground)",
+                // kilocode_change: green=OK, yellow=skipped/fallback, red=error, default=in-progress
+                color: entry.status === "OK"
+                  ? "var(--vscode-testing-iconPassed)"
+                  : entry.status.startsWith("Error") || entry.status === "Failed"
+                    ? "var(--vscode-errorForeground, #f44)"
+                    : entry.status.startsWith("Skipped") || entry.status.startsWith("Fallback")
+                      ? "var(--vscode-editorWarning-foreground, #fa0)"
+                      : "var(--vscode-foreground)",
               }}>
                 {entry.provider}
               </span>
               <span style={{ overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>{entry.text}</span>
               <span style={{
                 "margin-left": "auto", "flex-shrink": "0",
-                color: entry.status === "OK" ? "var(--vscode-testing-iconPassed)" : "var(--vscode-errorForeground, #f44)",
+                // kilocode_change: green=OK, yellow=skipped/fallback, red=error/fail, default=playing
+                color: entry.status === "OK"
+                  ? "var(--vscode-testing-iconPassed)"
+                  : entry.status === "Failed" || entry.status.startsWith("Error")
+                    ? "var(--vscode-errorForeground, #f44)"
+                    : entry.status.startsWith("Skipped") || entry.status.startsWith("Fallback")
+                      ? "var(--vscode-editorWarning-foreground, #fa0)"
+                      : "var(--vscode-descriptionForeground)",
               }}>
                 {entry.status === "OK" ? "✓" : entry.status}
               </span>

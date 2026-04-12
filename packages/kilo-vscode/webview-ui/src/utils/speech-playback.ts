@@ -194,14 +194,21 @@ async function synthesizeAzure(
   return blob
 }
 
+// kilocode_change: RVC synthesis goes through the VoiceRouter proxy at port 7892
+// instead of calling http://localhost:5050 directly.  VS Code webviews are blocked
+// by CORS when calling arbitrary localhost ports (Docker containers don't set
+// Access-Control-Allow-Origin).  The extension-host proxy at 7892 has CORS headers
+// and relays to the container from Node.js where CORS is irrelevant.
+const VOICE_ROUTER_PORT = 7892
+
 async function synthesizeRvc(
   text: string,
   config: SpeechConfig,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  // Pre-flight health check
+  // Pre-flight health check via VoiceRouter proxy (CORS-safe)
   try {
-    const health = await fetch(`http://localhost:${config.rvc.dockerPort}/health`, {
+    const health = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/health`, {
       signal: AbortSignal.timeout(3000),
     })
     if (!health.ok) throw new Error("RVC container health check failed")
@@ -211,7 +218,7 @@ async function synthesizeRvc(
     throw new Error(`RVC Docker container not reachable on port ${config.rvc.dockerPort} — is it running?`)
   }
 
-  const resp = await fetch(`http://localhost:${config.rvc.dockerPort}/synthesize`, {
+  const resp = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/synthesize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -392,8 +399,9 @@ class SpeechEngine {
     if (!basic.ready) return basic
 
     if (provider === "rvc") {
+      // kilocode_change: use VoiceRouter proxy (CORS-safe) instead of direct Docker port
       try {
-        const resp = await fetch(`http://localhost:${config.rvc.dockerPort}/health`, {
+        const resp = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/health`, {
           signal: AbortSignal.timeout(3000),
         })
         if (!resp.ok) return { ready: false, reason: "RVC container returned unhealthy status" }

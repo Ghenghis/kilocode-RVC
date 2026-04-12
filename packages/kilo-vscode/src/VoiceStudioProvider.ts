@@ -1347,6 +1347,20 @@ export class VoiceStudioProvider implements vscode.Disposable {
   private startVoiceRouterServer(): void {
     try {
       this.voiceRouterServer = http.createServer((req, res) => {
+        // kilocode_change – CORS headers on every response so VS Code webview
+        // (origin: vscode-webview://...) can call this server without CORS errors.
+        res.setHeader("Access-Control-Allow-Origin", "*")
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+
+        // Preflight
+        if (req.method === "OPTIONS") {
+          res.writeHead(204)
+          res.end()
+          return
+        }
+
+        // ── /voice-switch ────────────────────────────────────────────────────
         if (req.method === "POST" && req.url === "/voice-switch") {
           const chunks: Buffer[] = []
           req.on("data", (chunk: Buffer) => chunks.push(chunk))
@@ -1391,6 +1405,59 @@ export class VoiceStudioProvider implements vscode.Disposable {
               res.end(JSON.stringify({ ok: false, error: String(err) }))
             }
           })
+
+        // ── /rvc/health (GET) — proxy RVC Docker health check via extension host
+        // kilocode_change: webviews are blocked by CORS from calling http://localhost:PORT
+        // directly; this proxy runs in Node.js (no CORS) and relays to the RVC container.
+        } else if (req.method === "GET" && req.url === "/rvc/health") {
+          const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const rvcPort = speech.get<number>("rvc.dockerPort", 5050)
+          const ctrl = new AbortController()
+          const timer = setTimeout(() => ctrl.abort(), 3000)
+          fetch(`http://127.0.0.1:${rvcPort}/health`, { signal: ctrl.signal })
+            .then((r) => {
+              clearTimeout(timer)
+              res.writeHead(r.ok ? 200 : 502, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: r.ok, status: r.status }))
+            })
+            .catch((err: unknown) => {
+              clearTimeout(timer)
+              if (!res.headersSent) {
+                res.writeHead(503, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: false, error: String(err) }))
+              }
+            })
+
+        // ── /rvc/synthesize (POST) — proxy RVC synthesis via extension host
+        } else if (req.method === "POST" && req.url === "/rvc/synthesize") {
+          const speech = vscode.workspace.getConfiguration("kilo-code.new.speech")
+          const rvcPort = speech.get<number>("rvc.dockerPort", 5050)
+          const reqChunks: Buffer[] = []
+          req.on("data", (chunk: Buffer) => reqChunks.push(chunk))
+          req.on("end", () => {
+            const bodyStr = Buffer.concat(reqChunks).toString("utf-8")
+            this.httpPostBinary(`http://127.0.0.1:${rvcPort}/synthesize`, bodyStr)
+              .then((audioBuf) => {
+                if (!res.headersSent) {
+                  res.writeHead(200, { "Content-Type": "audio/wav" })
+                  res.end(audioBuf)
+                }
+              })
+              .catch((err: unknown) => {
+                this.log.warn(`[VoiceRouter] RVC synthesize proxy error: ${err}`)
+                if (!res.headersSent) {
+                  res.writeHead(502, { "Content-Type": "application/json" })
+                  res.end(JSON.stringify({ ok: false, error: String(err) }))
+                }
+              })
+          })
+          req.on("error", (err) => {
+            if (!res.headersSent) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: String(err) }))
+            }
+          })
+
         } else {
           res.writeHead(404, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ ok: false, error: "Not found" }))
