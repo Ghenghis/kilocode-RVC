@@ -2,11 +2,10 @@
 import fs from "fs/promises"
 import path from "path"
 import { randomUUID } from "crypto"
-import z from "zod"
-import { Log } from "../util/log"
-import { Instance } from "../project/instance"
-import { Bus } from "../bus"
-import { BusEvent } from "../bus/bus-event"
+import { Log } from "@/util/log"
+import { Instance } from "@/project/instance"
+import { Bus } from "@/bus"
+import { BusEvent } from "@/bus/bus-event"
 import { AgentEvent } from "./event"
 
 export namespace EventStream {
