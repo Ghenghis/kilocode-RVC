@@ -337,6 +337,9 @@ export namespace SessionPrompt {
     let envBlock: string | undefined
     let envUser: string | undefined
 
+    // kilocode_change — Phase 8.2: pending reflection to inject on next turn
+    let pendingReflection: string | undefined
+
     let step = 0
     const session = await Session.get(sessionID)
     while (true) {
@@ -758,6 +761,14 @@ export namespace SessionPrompt {
         // Memory retrieval failure is non-fatal
       }
       // kilocode_change end
+
+      // kilocode_change start — Phase 8.2: inject pending reflection from stuck detection
+      if (pendingReflection) {
+        system.push(pendingReflection)
+        pendingReflection = undefined
+      }
+      // kilocode_change end
+
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -818,26 +829,62 @@ export namespace SessionPrompt {
 
       // kilocode_change start — Phase 8.2: stuck detection after each agent turn
       try {
-        const turnParts = await MessageV2.parts(processor.message.id)
-        const stuckMessages = turnParts.map((p) => ({
-          role: "assistant" as const,
-          content: p.type === "tool"
-            ? JSON.stringify({ tool: p.tool, input: (p.state as any)?.input })
-            : ("text" in p ? String((p as any).text) : ""),
-        }))
+        // Bug 1 fix: use full conversation history (msgs) instead of only current turn parts
+        const stuckMessages: StuckDetector.Message[] = msgs.flatMap((msg): StuckDetector.Message[] => {
+          // Bug 2 fix: map each WithParts message to the StuckDetector.Message interface correctly
+          if (msg.info.role === "user") {
+            const text = msg.parts
+              .filter((p): p is MessageV2.TextPart => p.type === "text")
+              .map((p) => p.text)
+              .join(" ")
+            return [{ role: "user", content: text }]
+          }
+          // assistant role — emit one entry per part (text or tool)
+          return msg.parts.flatMap((p): StuckDetector.Message[] => {
+            if (p.type === "text") {
+              return [{ role: "assistant", content: p.text }]
+            }
+            if (p.type === "tool") {
+              const state = p.state
+              const isError = state.status === "error"
+              const toolInput = state.status !== "pending" ? JSON.stringify(state.input) : undefined
+              const toolOutput =
+                state.status === "completed"
+                  ? state.output
+                  : state.status === "error"
+                    ? state.error
+                    : undefined
+              return [{
+                role: "tool",
+                toolName: p.tool,
+                toolInput,
+                toolOutput,
+                isError,
+              }]
+            }
+            return []
+          })
+        })
         const agentOpts = agent.name === "debug" ? StuckDetector.DEBUG_OPTIONS : undefined
         const stuckResult = StuckDetector.check(stuckMessages, agentOpts)
         if (stuckResult.stuck) {
-          // Get user's task summary from the message parts
-          const userParts = await MessageV2.parts(lastUser.id)
-          const taskText = userParts.find((p) => p.type === "text")
-          const taskSummary = taskText && "text" in taskText ? String((taskText as any).text) : undefined
+          // Get user's task summary from the last user message parts
+          const taskSummary = lastUser
+            ? (await MessageV2.parts(lastUser.id))
+                .filter((p): p is MessageV2.TextPart => p.type === "text")
+                .map((p) => p.text)
+                .join(" ") || undefined
+            : undefined
           const reflection = ReflectionEngine.reflect(stuckResult, { sessionID, taskSummary })
-          if (ReflectionEngine.shouldEscalate(sessionID)) {
+          // Bug 3 fix: shouldEscalate returns EscalationStatus object, not boolean
+          const escalation = ReflectionEngine.shouldEscalate(sessionID)
+          if (escalation.shouldEscalate) {
             log.warn("stuck detection: escalating to user", { pattern: stuckResult.pattern, sessionID })
           } else {
             log.info("stuck detection: injecting reflection", { pattern: stuckResult.pattern, sessionID })
           }
+          // Bug 4 fix: store reflection for injection into next turn's system prompt
+          pendingReflection = reflection.fullPrompt
           // Emit reflection event for audit trail
           void EventStream.append({
             sessionID,

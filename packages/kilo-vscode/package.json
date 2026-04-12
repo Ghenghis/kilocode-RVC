@@ -851,6 +851,23 @@
           "default": false,
           "description": "Enable Voice Studio debug panel with live message log, state inspector, and feature test buttons"
         },
+        "kilo-code.new.speech.sentimentIntensity": {
+          "type": "number",
+          "default": 70,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "How strongly (0–100%) pitch and rate are modulated to reflect emotional tone in TTS output."
+        },
+        "kilo-code.new.speech.interruptOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Stop ongoing speech playback as soon as the user starts typing a new message."
+        },
+        "kilo-code.new.speech.multiVoiceMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Assign a distinct voice to each AI agent so multi-agent conversations use different voices per speaker."
+        },
         "kilo-code.new.notifications.agent": {
           "type": "boolean",
           "default": true,

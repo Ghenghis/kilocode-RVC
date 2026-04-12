@@ -21,7 +21,7 @@ export namespace SharedMemory {
     L3: 5000,
   }
 
-  const DEFAULT_RELEVANCE_THRESHOLD = 0.85
+  const DEFAULT_RELEVANCE_THRESHOLD = 0.3 // kilocode_change Bug 3: was 0.85 — unreachably high, making retrieve() effectively inert
 
   // ---------------------------------------------------------------------------
   // Retrieve options schema
@@ -36,7 +36,7 @@ export namespace SharedMemory {
         .min(0)
         .max(1)
         .optional()
-        .describe("Minimum relevance score (default 0.85)"),
+        .describe("Minimum relevance score (default 0.30)"), // kilocode_change Bug 3: updated from 0.85
       limit: z
         .number()
         .int()
@@ -65,7 +65,8 @@ export namespace SharedMemory {
   // L1 — Agent-Local (in-memory, session-scoped)
   // ---------------------------------------------------------------------------
 
-  const l1Store: Map<string, MemoryFragment.Info> = new Map()
+  // kilocode_change Bug 1: was module-level (shared across all project instances); now instance-scoped via Instance.state()
+  const l1Store = Instance.state(() => new Map<string, MemoryFragment.Info>())
 
   // ---------------------------------------------------------------------------
   // Path helpers
@@ -265,16 +266,24 @@ export namespace SharedMemory {
 
     switch (tier) {
       case "L1":
-        l1Store.set(fragment.id, fragment)
-        if (l1Store.size > TIER_LIMITS.L1) {
+        l1Store().set(fragment.id, fragment)
+        if (l1Store().size > TIER_LIMITS.L1) {
           await evict("L1")
         }
         break
       case "L2":
         await appendToFile(l2Path(), fragment)
+        // kilocode_change Bug 2: was missing eviction check for L2
+        if ((await readFile(l2Path())).length > TIER_LIMITS.L2) {
+          await evict("L2")
+        }
         break
       case "L3":
         await appendToFile(l3Path(), fragment)
+        // kilocode_change Bug 2: was missing eviction check for L3
+        if ((await readFile(l3Path())).length > TIER_LIMITS.L3) {
+          await evict("L3")
+        }
         break
     }
   }
@@ -318,11 +327,15 @@ export namespace SharedMemory {
     // Sort by relevance descending
     results.sort((a, b) => b.score - a.score)
 
-    // Update access metadata for returned fragments
+    // kilocode_change Bug 4: was updating access counts for ALL results before slicing,
+    // inflating counts for fragments never returned to the caller.
+    // Apply limit FIRST, then update access metadata only for actually returned fragments.
+    const limited = limit !== undefined ? results.slice(0, limit) : results
+
+    // Update access metadata only for actually returned fragments
     const now = Date.now()
-    // kilocode_change — collect per-tier access updates so flushTier can apply them
     const accessUpdates = new Map<string, { accessCount: number; lastAccessed: number }>()
-    for (const result of results) {
+    for (const result of limited) {
       result.fragment.accessCount++
       result.fragment.lastAccessed = now
       if (result.tier !== "L1") {
@@ -334,9 +347,9 @@ export namespace SharedMemory {
       // For L1, the Map reference is already updated in-place.
     }
 
-    // Flush access-count updates for persistent tiers
-    const l2Dirty = results.some((r) => r.tier === "L2")
-    const l3Dirty = results.some((r) => r.tier === "L3")
+    // Flush access-count updates for persistent tiers (only if needed)
+    const l2Dirty = limited.some((r) => r.tier === "L2")
+    const l3Dirty = limited.some((r) => r.tier === "L3")
     if (l2Dirty) {
       await flushTier("L2", accessUpdates)
     }
@@ -344,10 +357,7 @@ export namespace SharedMemory {
       await flushTier("L3", accessUpdates)
     }
 
-    if (limit !== undefined) {
-      return results.slice(0, limit)
-    }
-    return results
+    return limited
   }
 
   /**
@@ -358,9 +368,9 @@ export namespace SharedMemory {
    */
   export async function promote(fragmentID: string): Promise<boolean> {
     // Check L1 first
-    const l1Fragment = l1Store.get(fragmentID)
+    const l1Fragment = l1Store().get(fragmentID)
     if (l1Fragment) {
-      l1Store.delete(fragmentID)
+      l1Store().delete(fragmentID)
       await store(l1Fragment, "L2")
       log.info("promoted fragment L1 -> L2", { id: fragmentID })
       return true
@@ -452,7 +462,7 @@ export namespace SharedMemory {
    */
   export async function clear(tier?: MemoryFragment.Tier): Promise<void> {
     if (!tier || tier === "L1") {
-      l1Store.clear()
+      l1Store().clear()
       log.info("cleared L1 memory")
     }
 
@@ -523,7 +533,7 @@ export namespace SharedMemory {
   ): Promise<MemoryFragment.Info[]> {
     switch (tier) {
       case "L1":
-        return Array.from(l1Store.values())
+        return Array.from(l1Store().values())
       case "L2":
         return readFile(l2Path())
       case "L3":
@@ -556,10 +566,10 @@ export namespace SharedMemory {
    * LRU eviction for the L1 in-memory tier.
    */
   function evictL1(limit: number): number {
-    if (l1Store.size <= limit) return 0
+    if (l1Store().size <= limit) return 0
 
     // Convert to array and sort by lastAccessed ascending
-    const entries = Array.from(l1Store.entries()).sort(
+    const entries = Array.from(l1Store().entries()).sort(
       (a, b) => a[1].lastAccessed - b[1].lastAccessed,
     )
 
@@ -571,10 +581,10 @@ export namespace SharedMemory {
       }
     }
     for (const id of expiredIds) {
-      l1Store.delete(id)
+      l1Store().delete(id)
     }
 
-    if (l1Store.size <= limit) {
+    if (l1Store().size <= limit) {
       log.info("evicted expired fragments from L1", {
         evicted: expiredIds.length,
       })
@@ -582,20 +592,20 @@ export namespace SharedMemory {
     }
 
     // Still over limit — evict by LRU
-    const remaining = Array.from(l1Store.entries()).sort(
+    const remaining = Array.from(l1Store().entries()).sort(
       (a, b) => a[1].lastAccessed - b[1].lastAccessed,
     )
     const toEvict = remaining.length - limit
     let evicted = 0
     for (let i = 0; i < toEvict; i++) {
-      l1Store.delete(remaining[i][0])
+      l1Store().delete(remaining[i][0])
       evicted++
     }
 
     const total = expiredIds.length + evicted
     log.info("evicted fragments from L1 via LRU", {
       evicted: total,
-      remaining: l1Store.size,
+      remaining: l1Store().size,
     })
     return total
   }

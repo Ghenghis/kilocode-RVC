@@ -140,6 +140,9 @@ export namespace PromptEvolution {
     avgDuration: number
     avgTokenCost: number
   } {
+    if (failures.length === 0) { // kilocode_change: guard against division by zero on empty array
+      return { commonTools: [], commonPatterns: [], avgDuration: 0, avgTokenCost: 0 }
+    }
     // Find tools that appear in more than half the failures
     const toolCounts = new Map<string, number>()
     for (const f of failures) {

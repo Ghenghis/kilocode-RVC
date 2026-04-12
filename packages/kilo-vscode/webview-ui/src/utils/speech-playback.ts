@@ -8,7 +8,15 @@
  * Fallback chain: RVC → Azure → Browser (if configured)
  * Azure → Browser
  * Browser → (always available)
+ *
+ * kilocode_change: Phase 3.2 (ChunkedSpeechPlayer), Phase 6.3 (VAD pause),
+ *   Phase 7.1 (exponential backoff + providerStats), Phase 7.3 (AudioCritic cache)
  */
+
+// kilocode_change: Phase 3.2 — ChunkedSpeechPlayer import
+import { ChunkedSpeechPlayer } from "./chunked-speech"
+// kilocode_change: Phase 7.3 — AudioCritic + SynthesisCache imports
+import { AudioCritic, SynthesisCache } from "./audio-critic"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type SpeechProvider = "browser" | "azure" | "rvc"
@@ -20,6 +28,10 @@ export interface SpeechConfig {
   rvc: { voiceId: string; dockerPort: number; edgeVoice: string; pitchShift: number }
   azure: { region: string; apiKey: string; voiceId: string }
   browser: { voiceURI: string; rate: number; pitch: number }
+  // kilocode_change: Phase 3.2 — stream speech flag (default false)
+  streamSpeech?: boolean
+  // kilocode_change: Phase 6.3 — VAD pause flag (default false)
+  vadEnabled?: boolean
 }
 
 export interface SpeechResult {
@@ -36,10 +48,55 @@ interface ActivePlayback {
   blobUrl?: string
   utterance?: SpeechSynthesisUtterance
   abortController?: AbortController
+  // kilocode_change: Phase 3.2 — track chunked player so we can interrupt it
+  chunkedPlayer?: ChunkedSpeechPlayer
 }
 
 type ErrorCallback = (provider: SpeechProvider, error: string, fallbackUsed?: SpeechProvider) => void
 type StopCallback = () => void
+
+// ── kilocode_change: Phase 7.1 — module-level provider stats ─────────────────
+/**
+ * Track per-provider success/failure counts so that the fallback chain can be
+ * sorted with the most-reliable provider first.
+ */
+const providerStats = new Map<string, { successes: number; failures: number }>()
+
+function recordProviderSuccess(provider: SpeechProvider): void {
+  const stats = providerStats.get(provider) ?? { successes: 0, failures: 0 }
+  stats.successes++
+  providerStats.set(provider, stats)
+}
+
+function recordProviderFailure(provider: SpeechProvider): void {
+  const stats = providerStats.get(provider) ?? { successes: 0, failures: 0 }
+  stats.failures++
+  providerStats.set(provider, stats)
+}
+
+/** Success rate in [0, 1].  Unknown providers start at 0.5 (neutral). */
+function successRate(provider: SpeechProvider): number {
+  const stats = providerStats.get(provider)
+  if (!stats) return 0.5
+  const total = stats.successes + stats.failures
+  if (total === 0) return 0.5
+  return stats.successes / total
+}
+
+// ── kilocode_change: Phase 7.1 — exponential backoff helper ──────────────────
+const BACKOFF_BASE_DELAY = 500   // ms
+const BACKOFF_MAX_DELAY  = 10000 // ms
+const BACKOFF_JITTER     = 500   // ms
+const BACKOFF_MAX_ATTEMPTS = 3
+
+function backoffDelay(attempt: number): number {
+  const raw = BACKOFF_BASE_DELAY * Math.pow(2, attempt) + Math.random() * BACKOFF_JITTER
+  return Math.min(raw, BACKOFF_MAX_DELAY)
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 // ── Readiness checks ─────────────────────────────────────────────────────────
 
@@ -75,7 +132,7 @@ function checkReady(provider: SpeechProvider, config: SpeechConfig): { ready: bo
   }
 }
 
-/** Get the fallback chain for a given provider */
+/** Get the fallback chain for a given provider, sorted by success rate (highest first) */
 function getFallbackChain(primary: SpeechProvider, config: SpeechConfig): SpeechProvider[] {
   const chain: SpeechProvider[] = []
   if (primary === "rvc") {
@@ -87,6 +144,10 @@ function getFallbackChain(primary: SpeechProvider, config: SpeechConfig): Speech
     chain.push("browser")
   }
   // Browser has no fallback — it always works
+
+  // kilocode_change: Phase 7.1 — sort fallback chain by success rate (best first)
+  chain.sort((a, b) => successRate(b) - successRate(a))
+
   return chain
 }
 
@@ -170,6 +231,59 @@ async function synthesizeRvc(
   return blob
 }
 
+// ── kilocode_change: Phase 7.3 — decode blob to AudioBuffer for critic ───────
+async function blobToAudioBuffer(blob: Blob): Promise<AudioBuffer | null> {
+  try {
+    const arrayBuffer = await blob.arrayBuffer()
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+    await ctx.close()
+    return audioBuffer
+  } catch {
+    return null
+  }
+}
+
+// ── kilocode_change: Phase 6.3 — VAD (Voice Activity Detection) helper ───────
+interface VadHandle {
+  stream: MediaStream
+  analyser: AnalyserNode
+  context: AudioContext
+  source: MediaStreamAudioSourceNode
+  stop: () => void
+}
+
+async function startVad(): Promise<VadHandle | null> {
+  if (!navigator.mediaDevices?.getUserMedia) return null
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    const context = new AudioContext()
+    const source = context.createMediaStreamSource(stream)
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 512
+    source.connect(analyser)
+    const stop = () => {
+      try {
+        source.disconnect()
+        stream.getTracks().forEach((t) => t.stop())
+        void context.close()
+      } catch { /* swallow */ }
+    }
+    return { stream, analyser, context, source, stop }
+  } catch {
+    // Permission denied or device not available — fall through to normal behavior
+    return null
+  }
+}
+
+function getMicRms(analyser: AnalyserNode): number {
+  const data = new Float32Array(analyser.fftSize)
+  analyser.getFloatTimeDomainData(data)
+  let sum = 0
+  for (const s of data) sum += s * s
+  return Math.sqrt(sum / data.length)
+}
+
 // ── Engine ────────────────────────────────────────────────────────────────────
 
 class SpeechEngine {
@@ -186,6 +300,10 @@ class SpeechEngine {
     // Abort any in-flight fetch
     if (this.active.abortController) {
       this.active.abortController.abort()
+    }
+    // kilocode_change: Phase 3.2 — interrupt chunked player if active
+    if (this.active.chunkedPlayer) {
+      this.active.chunkedPlayer.interrupt()
     }
     // Stop audio element
     if (this.active.audio) {
@@ -226,12 +344,23 @@ class SpeechEngine {
   /**
    * Main entry point: speak text using the configured provider.
    * Validates readiness, attempts synthesis, falls back if primary fails.
+   *
+   * kilocode_change: Phase 3.2 — delegates to ChunkedSpeechPlayer for long text
+   *   or when streamSpeech is enabled.
+   * kilocode_change: Phase 6.3 — pauses/resumes TTS when VAD detects mic activity.
    */
   async speak(text: string, config: SpeechConfig, source: PlaybackSource = "auto-speak"): Promise<SpeechResult> {
     // Stop any active playback first
     this.stop()
 
     const primary = config.provider
+
+    // kilocode_change: Phase 3.2 — use ChunkedSpeechPlayer for long text or stream mode
+    const useChunked = (config.streamSpeech === true) || (text.length > 200 && primary !== "browser")
+    if (useChunked && primary !== "browser") {
+      return this.speakChunked(text, config, source)
+    }
+
     const readiness = checkReady(primary, config)
 
     // If primary isn't even configured, skip straight to fallback
@@ -295,6 +424,88 @@ class SpeechEngine {
 
   // ── Internal ────────────────────────────────────────────────────────────
 
+  // kilocode_change: Phase 3.2 — chunked speak path ─────────────────────────
+  private async speakChunked(
+    text: string,
+    config: SpeechConfig,
+    source: PlaybackSource,
+  ): Promise<SpeechResult> {
+    const provider = config.provider
+    const abortController = new AbortController()
+
+    // Build a synthesizeFn that synthesizes AND plays each chunk (returns void)
+    const vol = config.volume / 100
+    const synthesizeFn = async (chunk: string): Promise<void> => {
+      let blob: Blob
+      if (provider === "azure") {
+        blob = await synthesizeAzure(chunk, config, abortController.signal)
+      } else if (provider === "rvc") {
+        blob = await synthesizeRvc(chunk, config, abortController.signal)
+      } else {
+        throw new Error(`Chunked mode not supported for provider: ${provider}`)
+      }
+      await this.playBlobInternal(blob, vol, provider as "azure" | "rvc", source)
+    }
+
+    const player = new ChunkedSpeechPlayer(synthesizeFn)
+    this.active = { source, provider, abortController, chunkedPlayer: player }
+
+    // kilocode_change: Phase 6.3 — VAD integration for chunked playback
+    let vad: VadHandle | null = null
+    if (config.vadEnabled) {
+      vad = await startVad()
+      if (vad) {
+        this.attachVadToPlayer(vad, player)
+      }
+    }
+
+    try {
+      await player.speak(text)
+      recordProviderSuccess(provider) // kilocode_change: Phase 7.1
+      return { provider, usedFallback: false }
+    } catch (e: unknown) {
+      if (this.isAbortError(e)) {
+        return { provider, usedFallback: false, error: "Cancelled" }
+      }
+      const errMsg = e instanceof Error ? e.message : String(e)
+      console.warn(`[Speech] Chunked ${provider} failed: ${errMsg}`)
+      recordProviderFailure(provider) // kilocode_change: Phase 7.1
+      return this.tryFallbackChain(text, config, source, provider, errMsg)
+    } finally {
+      if (vad) vad.stop()
+      if (this.active?.chunkedPlayer === player) {
+        this.active = null
+        this.notifyStop()
+      }
+    }
+  }
+
+  // kilocode_change: Phase 6.3 — attach VAD watcher to a ChunkedSpeechPlayer ─
+  private attachVadToPlayer(vad: VadHandle, player: ChunkedSpeechPlayer): void {
+    const VAD_THRESHOLD = 0.01 // RMS energy threshold for "user is speaking"
+    const CHECK_INTERVAL_MS = 150
+
+    let paused = false
+    const intervalId = setInterval(() => {
+      // Stop polling if the player is no longer the active one
+      if (!this.active || this.active.chunkedPlayer !== player) {
+        clearInterval(intervalId)
+        return
+      }
+
+      const rms = getMicRms(vad.analyser)
+      if (rms > VAD_THRESHOLD && !paused) {
+        paused = true
+        player.interrupt()
+        console.log("[Speech VAD] Mic activity detected — interrupting TTS")
+      } else if (rms <= VAD_THRESHOLD && paused) {
+        paused = false
+        // player resumes naturally when next chunk queued; no explicit resume needed
+        console.log("[Speech VAD] Mic quiet — resuming TTS")
+      }
+    }, CHECK_INTERVAL_MS)
+  }
+
   private async tryFallbackChain(
     text: string,
     config: SpeechConfig,
@@ -308,19 +519,33 @@ class SpeechEngine {
       const fbReady = checkReady(fallback, config)
       if (!fbReady.ready) continue
 
-      try {
-        console.log(`[Speech] Falling back from ${failedProvider} → ${fallback}`)
-        await this.synthesizeAndPlay(text, config, fallback, source)
-        this.notifyError(failedProvider, failedReason, fallback)
-        return { provider: fallback, usedFallback: true, fallbackReason: failedReason }
-      } catch (e: unknown) {
-        if (this.isAbortError(e)) {
-          return { provider: fallback, usedFallback: true, error: "Cancelled" }
+      // kilocode_change: Phase 7.1 — retry with exponential backoff (up to BACKOFF_MAX_ATTEMPTS)
+      let lastErr = ""
+      for (let attempt = 0; attempt < BACKOFF_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          const delay = backoffDelay(attempt - 1)
+          console.log(`[Speech] Retry ${attempt}/${BACKOFF_MAX_ATTEMPTS - 1} for ${fallback} after ${delay.toFixed(0)}ms`)
+          await sleep(delay)
         }
-        const errMsg = e instanceof Error ? e.message : String(e)
-        console.warn(`[Speech] Fallback ${fallback} also failed: ${errMsg}`)
-        continue
+
+        try {
+          console.log(`[Speech] Falling back from ${failedProvider} → ${fallback} (attempt ${attempt + 1})`)
+          await this.synthesizeAndPlay(text, config, fallback, source)
+          recordProviderSuccess(fallback) // kilocode_change: Phase 7.1
+          this.notifyError(failedProvider, failedReason, fallback)
+          return { provider: fallback, usedFallback: true, fallbackReason: failedReason }
+        } catch (e: unknown) {
+          if (this.isAbortError(e)) {
+            return { provider: fallback, usedFallback: true, error: "Cancelled" }
+          }
+          lastErr = e instanceof Error ? e.message : String(e)
+          console.warn(`[Speech] Fallback ${fallback} attempt ${attempt + 1} failed: ${lastErr}`)
+        }
       }
+
+      // All attempts for this fallback exhausted
+      recordProviderFailure(fallback) // kilocode_change: Phase 7.1
+      console.warn(`[Speech] Fallback ${fallback} exhausted all ${BACKOFF_MAX_ATTEMPTS} attempts`)
     }
 
     // All providers failed
@@ -341,23 +566,138 @@ class SpeechEngine {
     // Register active state so stop() can abort in-flight fetches
     this.active = { source, provider, abortController }
 
-    switch (provider) {
-      case "browser":
-        return this.playBrowserInternal(text, vol, config.browser.rate, config.browser.pitch, config.browser.voiceURI, source)
-
-      case "azure": {
-        const blob = await synthesizeAzure(text, config, abortController.signal)
-        // Check we haven't been stopped during the fetch
-        if (abortController.signal.aborted) return
-        return this.playBlobInternal(blob, vol, "azure", source)
-      }
-
-      case "rvc": {
-        const blob = await synthesizeRvc(text, config, abortController.signal)
-        if (abortController.signal.aborted) return
-        return this.playBlobInternal(blob, vol, "rvc", source)
-      }
+    // kilocode_change: Phase 6.3 — VAD for single-shot (non-chunked) path
+    let vad: VadHandle | null = null
+    if (config.vadEnabled && provider !== "browser") {
+      vad = await startVad()
     }
+
+    try {
+      switch (provider) {
+        case "browser":
+          return this.playBrowserInternal(text, vol, config.browser.rate, config.browser.pitch, config.browser.voiceURI, source)
+
+        case "azure": {
+          // kilocode_change: Phase 7.3 — check synthesis cache first
+          const azureCacheKey = { text, voiceId: config.azure.voiceId, provider: "azure" as const }
+          const cachedBlob = SynthesisCache.get(azureCacheKey)
+          let blob: Blob
+          if (cachedBlob) {
+            console.log("[Speech] Cache hit for Azure synthesis")
+            blob = cachedBlob
+          } else {
+            blob = await synthesizeAzure(text, config, abortController.signal)
+            // kilocode_change: Phase 7.3 — validate with AudioCritic before caching/playing
+            const audioBuffer = await blobToAudioBuffer(blob)
+            if (audioBuffer) {
+              const criticResult = await AudioCritic.analyze(audioBuffer, text.length)
+              if (!criticResult.pass) {
+                console.warn("[Speech] AudioCritic rejected Azure synthesis:", criticResult.issues)
+                throw new Error(`AudioCritic: ${criticResult.issues?.join(", ") ?? "audio quality check failed"}`)
+              }
+            }
+            SynthesisCache.set(azureCacheKey, blob)
+          }
+          if (abortController.signal.aborted) return
+          if (vad) {
+            return this.playBlobWithVad(blob, vol, "azure", source, vad)
+          }
+          return this.playBlobInternal(blob, vol, "azure", source)
+        }
+
+        case "rvc": {
+          // kilocode_change: Phase 7.3 — check synthesis cache first
+          const rvcCacheKey = { text, voiceId: config.rvc.voiceId, provider: "rvc" as const }
+          const cachedBlob = SynthesisCache.get(rvcCacheKey)
+          let blob: Blob
+          if (cachedBlob) {
+            console.log("[Speech] Cache hit for RVC synthesis")
+            blob = cachedBlob
+          } else {
+            blob = await synthesizeRvc(text, config, abortController.signal)
+            // kilocode_change: Phase 7.3 — validate with AudioCritic before caching/playing
+            const audioBuffer = await blobToAudioBuffer(blob)
+            if (audioBuffer) {
+              const criticResult = await AudioCritic.analyze(audioBuffer, text.length)
+              if (!criticResult.pass) {
+                console.warn("[Speech] AudioCritic rejected RVC synthesis:", criticResult.issues)
+                throw new Error(`AudioCritic: ${criticResult.issues?.join(", ") ?? "audio quality check failed"}`)
+              }
+            }
+            SynthesisCache.set(rvcCacheKey, blob)
+          }
+          if (abortController.signal.aborted) return
+          if (vad) {
+            return this.playBlobWithVad(blob, vol, "rvc", source, vad)
+          }
+          return this.playBlobInternal(blob, vol, "rvc", source)
+        }
+      }
+    } finally {
+      if (vad) vad.stop()
+    }
+  }
+
+  // kilocode_change: Phase 6.3 — blob playback with VAD pause/resume ──────────
+  private playBlobWithVad(
+    blob: Blob,
+    volume: number,
+    provider: "azure" | "rvc",
+    source: PlaybackSource,
+    vad: VadHandle,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const blobUrl = URL.createObjectURL(blob)
+      const audio = new Audio(blobUrl)
+      audio.volume = volume
+
+      const existing = this.active
+      this.active = { source, provider, audio, blobUrl, abortController: existing?.abortController }
+
+      const VAD_THRESHOLD = 0.01
+      const CHECK_INTERVAL_MS = 150
+      let paused = false
+
+      const intervalId = setInterval(() => {
+        if (!this.active || this.active.audio !== audio) {
+          clearInterval(intervalId)
+          return
+        }
+        const rms = getMicRms(vad.analyser)
+        if (rms > VAD_THRESHOLD && !paused) {
+          paused = true
+          audio.pause()
+          console.log("[Speech VAD] Mic activity — pausing blob playback")
+        } else if (rms <= VAD_THRESHOLD && paused) {
+          paused = false
+          audio.play().catch(() => { /* ignore resume errors */ })
+          console.log("[Speech VAD] Mic quiet — resuming blob playback")
+        }
+      }, CHECK_INTERVAL_MS)
+
+      audio.onended = () => {
+        clearInterval(intervalId)
+        URL.revokeObjectURL(blobUrl)
+        this.active = null
+        this.notifyStop()
+        resolve()
+      }
+      audio.onerror = (e) => {
+        clearInterval(intervalId)
+        URL.revokeObjectURL(blobUrl)
+        this.active = null
+        this.notifyStop()
+        reject(e)
+      }
+
+      audio.play().catch((e) => {
+        clearInterval(intervalId)
+        URL.revokeObjectURL(blobUrl)
+        this.active = null
+        this.notifyStop()
+        reject(e)
+      })
+    })
   }
 
   private playBrowserInternal(

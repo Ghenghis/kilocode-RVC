@@ -43,11 +43,12 @@ function validatePath(remotePath: string): void {
 // kilocode_change - validate command strings (buildCommand / restartCommand)
 // Rejects obvious shell injection attempts while allowing normal commands.
 // These commands are also shown to the user via ctx.ask() for approval.
-const COMMAND_INJECTION_CHARS = /[`$(){}]/
+// kilocode_change - expanded to block all shell injection vectors: ;|<>&! and newlines
+const COMMAND_INJECTION_CHARS = /[`$(){};|<>&!\n\r]/
 function validateCommand(command: string, label: string): void {
   if (COMMAND_INJECTION_CHARS.test(command)) {
     throw new Error(
-      `Invalid ${label}: "${command}" contains potentially dangerous characters (backticks, $, parentheses, braces). ` +
+      `Invalid ${label}: "${command}" contains potentially dangerous characters (backticks, $, parentheses, braces, semicolons, pipes, redirects, newlines). ` +
         `Use simple commands like "npm run build" or "pm2 restart app".`,
     )
   }

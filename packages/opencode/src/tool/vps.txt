@@ -1,0 +1,4 @@
+Provision and manage cloud VPS instances via provider CLIs.
+Supports AWS, DigitalOcean, Hetzner, Linode, and Vultr.
+Actions: create, destroy, list, status, ssh (print command), snapshot.
+Requires the respective provider CLI to be installed and authenticated.

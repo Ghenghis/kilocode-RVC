@@ -22,7 +22,7 @@ export namespace EventStream {
   // ── Helpers ─────────────────────────────────────────────────────────
 
   function eventsDir(sessionID: string): string {
-    return path.join(Instance.worktree, ".kilo", "events", sessionID)
+    return path.join(Instance.directory, ".kilo", "events", sessionID) // kilocode_change: use Instance.directory, not Instance.worktree
   }
 
   function eventFilename(event: AgentEvent.Info): string {
@@ -92,15 +92,15 @@ export namespace EventStream {
     const events: AgentEvent.Info[] = []
     for (const file of sorted) {
       const raw = await fs.readFile(path.join(dir, file), "utf-8")
-      const parsed = AgentEvent.Info.safeParse(JSON.parse(raw))
-      if (parsed.success) {
-        events.push(parsed.data)
-      } else {
-        log.warn("skipping malformed event file", {
-          file,
-          sessionID,
-          error: parsed.error.message,
-        })
+      try { // kilocode_change: wrap in try/catch so SyntaxError from JSON.parse doesn't propagate
+        const parsed = AgentEvent.Info.safeParse(JSON.parse(raw))
+        if (parsed.success) {
+          events.push(parsed.data)
+        } else {
+          log.warn("skipping malformed event file", { file, sessionID, error: parsed.error.message })
+        }
+      } catch {
+        log.warn("skipping unparseable event file", { file, sessionID })
       }
     }
 
@@ -203,7 +203,7 @@ export namespace EventStream {
    * List all session IDs that have recorded events.
    */
   export async function sessions(): Promise<string[]> {
-    const base = path.join(Instance.worktree, ".kilo", "events")
+    const base = path.join(Instance.directory, ".kilo", "events") // kilocode_change: use Instance.directory, not Instance.worktree
     const entries = await fs.readdir(base, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
       if (err.code === "ENOENT") return []
       throw err

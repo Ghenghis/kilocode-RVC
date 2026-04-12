@@ -34,6 +34,7 @@ import { RecallTool } from "./recall" // kilocode_change
 import { SshTool } from "./ssh"
 import { DockerTool } from "./docker"
 import { DeployTool } from "./deploy"
+import { VpsTool } from "./vps" // kilocode_change — Phase 8.6: VPS Provisioning Tool
 // kilocode_change end
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
@@ -129,7 +130,7 @@ export namespace ToolRegistry {
       ...(Flag.KILO_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       // kilocode_change start - infrastructure agent tools, gated behind experimental flag
-      ...(config.experimental?.infra_tools === true ? [SshTool, DockerTool, DeployTool] : []),
+      ...(config.experimental?.infra_tools === true ? [SshTool, DockerTool, DeployTool, VpsTool] : []), // kilocode_change — Phase 8.6: added VpsTool
       // kilocode_change end
       PlanExitTool, // kilocode_change - always registered; gated by agent permission instead
       ...custom,

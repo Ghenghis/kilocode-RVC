@@ -48,6 +48,87 @@ const GS_RECENT_SEARCHES = "kilocode.voiceRecentSearches"
 const GS_SAVED_SEARCHES = "kilocode.voiceSavedSearches"
 const GS_INTERACTION_MODE = "kilocode.voiceInteractionMode"
 
+// kilocode_change – Phase 3.4 / 7.2 voice memory globalState keys
+const GS_VOICE_MEMORY_PROJECT_MAP = "kilocode.voiceMemory.projectMap"
+const GS_VOICE_MEMORY_TIME_PREFS = "kilocode.voiceMemory.timePrefs"
+const GS_VOICE_MEMORY_QUALITY_LOG = "kilocode.voiceMemory.qualityLog"
+// kilocode_change – Phase 2.1 / 4.1 agent voice routing globalState key
+const GS_VOICE_AGENT_MAP = "kilocode.voiceAgentMap"
+
+// ---------------------------------------------------------------------------
+// VoiceMemoryService – Phase 3.4
+// ---------------------------------------------------------------------------
+// Inline service (no separate file) for persisting per-project voice prefs,
+// time-of-day preferences, quality logging, and auto-learn associations.
+// ---------------------------------------------------------------------------
+
+interface VoiceMemoryQualityEntry {
+  provider: string
+  latencyMs: number
+  success: boolean
+  timestamp: number
+}
+
+// kilocode_change – Phase 3.4: VoiceMemoryService
+class VoiceMemoryService {
+  constructor(private readonly gs: vscode.Memento) {}
+
+  /** Returns the remembered voiceId for a project path, if any. */
+  getProjectVoice(projectPath: string): string | undefined {
+    const map = this.gs.get<Record<string, string>>(GS_VOICE_MEMORY_PROJECT_MAP, {})
+    return map[projectPath]
+  }
+
+  /** Persists voiceId as the preferred voice for a project path. */
+  async setProjectVoice(projectPath: string, voiceId: string): Promise<void> {
+    const map = this.gs.get<Record<string, string>>(GS_VOICE_MEMORY_PROJECT_MAP, {})
+    map[projectPath] = voiceId
+    await this.gs.update(GS_VOICE_MEMORY_PROJECT_MAP, map)
+  }
+
+  /**
+   * Returns a preferred voiceId for the given hour (0-23), if configured.
+   * Time-of-day prefs are stored as: { morning: voiceId, afternoon: voiceId, evening: voiceId }
+   * morning   = 05:00–11:59
+   * afternoon = 12:00–17:59
+   * evening   = 18:00–04:59
+   */
+  getTimePreference(hour: number): string | undefined {
+    const prefs = this.gs.get<Record<string, string>>(GS_VOICE_MEMORY_TIME_PREFS, {})
+    if (hour >= 5 && hour < 12) return prefs["morning"]
+    if (hour >= 12 && hour < 18) return prefs["afternoon"]
+    return prefs["evening"]
+  }
+
+  /** Appends a quality entry; keeps only the last 50. */
+  async logQuality(entry: { provider: string; latencyMs: number; success: boolean }): Promise<void> {
+    const log = this.gs.get<VoiceMemoryQualityEntry[]>(GS_VOICE_MEMORY_QUALITY_LOG, [])
+    log.push({ ...entry, timestamp: Date.now() })
+    const trimmed = log.slice(-50)
+    await this.gs.update(GS_VOICE_MEMORY_QUALITY_LOG, trimmed)
+  }
+
+  /**
+   * Auto-learn: records a voice use for a project.  After 3+ uses of the same
+   * voice in the same project, auto-associate via setProjectVoice.
+   * Uses a separate transient counter stored in globalState.
+   */
+  async recordUse(projectPath: string, voiceId: string): Promise<void> {
+    const counterKey = "kilocode.voiceMemory.usageCounters"
+    const counters = this.gs.get<Record<string, Record<string, number>>>(counterKey, {})
+    if (!counters[projectPath]) counters[projectPath] = {}
+    counters[projectPath][voiceId] = (counters[projectPath][voiceId] ?? 0) + 1
+    await this.gs.update(counterKey, counters)
+
+    if (counters[projectPath][voiceId] >= 3) {
+      const current = this.getProjectVoice(projectPath)
+      if (current !== voiceId) {
+        await this.setProjectVoice(projectPath, voiceId)
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // VoiceStudioProvider
 // ---------------------------------------------------------------------------
@@ -61,6 +142,12 @@ export class VoiceStudioProvider implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = []
   private readonly downloads = new Map<string, DownloadTracker>()
   private readonly log: vscode.LogOutputChannel
+
+  // kilocode_change – Phase 2.1: VoiceRouter HTTP server on port 7892
+  private voiceRouterServer: http.Server | undefined
+
+  // kilocode_change – Phase 3.4: Voice memory service instance
+  private voiceMemory!: VoiceMemoryService
 
   /** E2E debug hooks — set by extension.ts when kilo-code.debugMode is active. */
   private debugHook: { in?: (msg: Record<string, unknown>) => void; out?: (msg: unknown) => void } | null = null
@@ -82,6 +169,10 @@ export class VoiceStudioProvider implements vscode.Disposable {
     this.log = vscode.window.createOutputChannel("KiloCode Voice Studio", { log: true })
     // Initialize OperationsTracker with context for timing history persistence
     OperationsTracker.getInstance().init(context)
+    // kilocode_change – Phase 3.4: initialize voice memory service
+    this.voiceMemory = new VoiceMemoryService(context.globalState)
+    // kilocode_change – Phase 2.1: start the VoiceRouter HTTP server
+    this.startVoiceRouterServer()
   }
 
   // -- Singleton access -----------------------------------------------------
@@ -308,6 +399,21 @@ export class VoiceStudioProvider implements vscode.Disposable {
         DebugCollector.getInstance().recordConsole("VoiceStudioProvider-webview", level ?? "log", args ?? [])
         break
       }
+      // kilocode_change – Phase 4.1: handle voiceSwitch from HTTP hook bridge
+      case "voiceSwitch": {
+        const { agent_id = "", agent_type = "" } = msg as { agent_id?: string; agent_type?: string }
+        const agentMap = this.context.globalState.get<Record<string, string>>(GS_VOICE_AGENT_MAP, {})
+        const voiceId = agentMap[agent_id] ?? this.autoAssignVoice(agent_id)
+        this.log.info(`[VoiceSwitch] agent=${agent_id} type=${agent_type} → voice=${voiceId}`)
+        this.post({
+          type: "activeVoiceChanged",
+          agent_id,
+          agent_type,
+          voiceId,
+          source: "voiceSwitch",
+        })
+        break
+      }
       default:
         this.log.warn(`[Message] Unknown message type: ${type}`)
     }
@@ -353,6 +459,20 @@ export class VoiceStudioProvider implements vscode.Disposable {
 
     this.log.info("[Library] Sending voiceStudioState")
     this.post({ type: "voiceStudioState", ...state })
+
+    // kilocode_change – Phase 7.2: session start voice suggestion toast
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (workspacePath) {
+      const rememberedVoice = this.voiceMemory.getProjectVoice(workspacePath)
+      if (rememberedVoice) {
+        this.log.info(`[VoiceMemory] Suggesting remembered voice "${rememberedVoice}" for project ${workspacePath}`)
+        this.post({
+          type: "voiceSuggestion",
+          voiceId: rememberedVoice,
+          message: "Using remembered voice for this project",
+        })
+      }
+    }
   }
 
   // -- Helper: resolve the running RVC Docker container name -----------------
@@ -562,6 +682,7 @@ export class VoiceStudioProvider implements vscode.Disposable {
     }
 
     // Strategy 2: Try local Docker container /synthesize if the model is installed locally
+    let localModelMissing = false
     try {
       const raw = await this.httpPostBinary(
         `http://127.0.0.1:${port}/synthesize`,
@@ -582,10 +703,30 @@ export class VoiceStudioProvider implements vscode.Disposable {
       })
       return
     } catch (localErr) {
+      const localErrMsg = String(localErr)
+      // kilocode_change – Phase 5.2: detect "not installed" vs other Docker errors
+      if (
+        localErrMsg.includes("404") ||
+        localErrMsg.includes("not found") ||
+        localErrMsg.includes("ECONNREFUSED")
+      ) {
+        localModelMissing = true
+      }
       this.log.warn(`[Store] Local Docker preview failed for ${msg.modelId}: ${localErr}`)
     }
 
-    // Both failed
+    // kilocode_change – Phase 5.2: if model is not installed locally, prompt to install instead of VPS error
+    if (localModelMissing) {
+      this.log.info(`[Store] Model ${msg.modelId} not installed — showing install prompt`)
+      this.post({
+        type: "showInstallPrompt",
+        modelId: msg.modelId,
+        message: `"${msg.modelId}" is not installed. Install it to preview locally.`,
+      })
+      return
+    }
+
+    // Both failed for non-install reasons
     this.post({
       type: "previewAudioReady",
       modelId: msg.modelId,
@@ -810,6 +951,12 @@ export class VoiceStudioProvider implements vscode.Disposable {
       const updatedHistory = [entry, ...history.filter((h) => h.id !== msg.voiceId)].slice(0, 50)
       await this.context.globalState.update(GS_HISTORY, updatedHistory)
 
+      // kilocode_change – Phase 3.4: auto-learn voice association for current project
+      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+      if (workspacePath) {
+        await this.voiceMemory.recordUse(workspacePath, msg.voiceId)
+      }
+
       this.log.info(`[Library] Active voice set and history updated`)
       this.post({ type: "activeVoiceSet", voiceId: msg.voiceId, provider: msg.provider })
     } catch (err) {
@@ -960,6 +1107,13 @@ export class VoiceStudioProvider implements vscode.Disposable {
     if (this.panel?.webview) {
       void this.panel.webview.postMessage(message)
     }
+  }
+
+  // kilocode_change — Phase 6.5: public entry point so VoiceChatParticipant
+  // (and other extension-side services) can push messages to the webview panel
+  // without needing access to the private `post` method.
+  public postToWebview(message: Record<string, unknown>): void {
+    this.post(message)
   }
 
   // -- Utility: httpGet -----------------------------------------------------
@@ -1175,6 +1329,89 @@ export class VoiceStudioProvider implements vscode.Disposable {
     })
   }
 
+  // -- Phase 2.1: VoiceRouter HTTP server -----------------------------------
+
+  // kilocode_change – Phase 2.1: deterministic voice auto-assignment by hashing agent_id
+  private autoAssignVoice(agentId: string): string {
+    const hash = crypto.createHash("sha256").update(agentId).digest()
+    const idx = hash[0] % 8
+    // Eight default voice slots — extension can override via voiceAgentMap
+    const defaults = [
+      "aria-neural", "jenny-neural", "guy-neural", "davis-neural",
+      "jane-neural", "jason-neural", "sara-neural", "tony-neural",
+    ]
+    return defaults[idx]
+  }
+
+  // kilocode_change – Phase 2.1: start an HTTP listener on port 7892 for VoiceRouter hook bridge POSTs
+  private startVoiceRouterServer(): void {
+    try {
+      this.voiceRouterServer = http.createServer((req, res) => {
+        if (req.method === "POST" && req.url === "/voice-switch") {
+          const chunks: Buffer[] = []
+          req.on("data", (chunk: Buffer) => chunks.push(chunk))
+          req.on("end", () => {
+            try {
+              const body = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as {
+                agent_id?: string
+                agent_type?: string
+                sessionId?: string
+              }
+              const { agent_id = "", agent_type = "", sessionId = "" } = body
+
+              // Look up agent voice from globalState map
+              const agentMap = this.context.globalState.get<Record<string, string>>(GS_VOICE_AGENT_MAP, {})
+              const voiceId = agentMap[agent_id] ?? this.autoAssignVoice(agent_id)
+
+              this.log.info(`[VoiceRouter] voice-switch: agent=${agent_id} type=${agent_type} voice=${voiceId}`)
+
+              // Push activeVoiceChanged to the webview
+              this.post({
+                type: "activeVoiceChanged",
+                agent_id,
+                agent_type,
+                sessionId,
+                voiceId,
+                source: "voiceRouter",
+              })
+
+              res.writeHead(200, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: true, voiceId }))
+            } catch (parseErr) {
+              this.log.warn(`[VoiceRouter] Failed to parse /voice-switch body: ${parseErr}`)
+              res.writeHead(400, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }))
+            }
+          })
+          req.on("error", (err) => {
+            this.log.warn(`[VoiceRouter] Request error: ${err}`)
+            res.writeHead(500, { "Content-Type": "application/json" })
+            res.end(JSON.stringify({ ok: false, error: String(err) }))
+          })
+        } else {
+          res.writeHead(404, { "Content-Type": "application/json" })
+          res.end(JSON.stringify({ ok: false, error: "Not found" }))
+        }
+      })
+
+      this.voiceRouterServer.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          this.log.warn("[VoiceRouter] Port 7892 already in use — VoiceRouter HTTP server not started")
+        } else {
+          this.log.warn(`[VoiceRouter] Server error: ${err}`)
+        }
+        this.voiceRouterServer = undefined
+      })
+
+      this.voiceRouterServer.listen(7892, "127.0.0.1", () => {
+        this.log.info("[VoiceRouter] HTTP server listening on 127.0.0.1:7892")
+      })
+    } catch (err) {
+      this.log.warn(`[VoiceRouter] Failed to start HTTP server: ${err}`)
+      this.voiceRouterServer = undefined
+    }
+  }
+
   // -- Disposable -----------------------------------------------------------
 
   public dispose(): void {
@@ -1188,6 +1425,14 @@ export class VoiceStudioProvider implements vscode.Disposable {
       tracker.controller.abort()
     })
     this.downloads.clear()
+
+    // kilocode_change – Phase 2.1: stop VoiceRouter HTTP server
+    if (this.voiceRouterServer) {
+      this.voiceRouterServer.close(() => {
+        this.log.info("[VoiceRouter] HTTP server stopped")
+      })
+      this.voiceRouterServer = undefined
+    }
 
     this.panel?.dispose()
     this.panel = undefined

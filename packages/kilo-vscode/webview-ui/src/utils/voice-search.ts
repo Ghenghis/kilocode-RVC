@@ -1,5 +1,11 @@
 import type { VoiceEntry, FilterState, VoiceGender, VoiceStyle, VoiceQuality } from "../types/voice"
 import { MOOD_MAPPINGS } from "../types/voice"
+// kilocode_change — Phase 5.3/5.4: Smart Search + Index Management
+import { AcousticModelIndex } from "./acoustic-model-index"
+import type { ModelIndex, ModelMetadata } from "./acoustic-model-index"
+
+// kilocode_change — expose SortOrder so callers don't import acoustic-model-index directly
+export type SortOrder = "recentlyUsed" | "mostUsed" | "alphabetical" | "size" | "quality"
 
 /**
  * Compute a fuzzy match score for a single query term against a string.
@@ -302,4 +308,47 @@ export function getAutocompleteResults(
 		voices: matchingVoices,
 		accentSuggestion,
 	}
+}
+
+// ─── Phase 5.3/5.4: Smart Search + Index Management ──────────────────────────
+
+/**
+ * kilocode_change — Similarity search over the acoustic model index.
+ * Delegates to AcousticModelIndex.search() and returns scored results.
+ * Useful for "find voices similar to David Bowie" style queries.
+ */
+export function similaritySearch(
+	query: string,
+	index: ModelIndex,
+	options?: { gender?: string; maxResults?: number },
+): Array<{ model: ModelMetadata; score: number; reason: string }> {
+	// kilocode_change
+	return AcousticModelIndex.search(index, query, options)
+}
+
+/**
+ * kilocode_change — Filter a list of ModelMetadata by one or more tags.
+ * A model matches if it has ALL of the requested tags (AND semantics).
+ * Pass a single-element array for OR-style behaviour by chaining calls.
+ */
+export function filterByTags(models: ModelMetadata[], tags: string[]): ModelMetadata[] {
+	// kilocode_change
+	if (tags.length === 0) {
+		return models
+	}
+	const lowerTags = tags.map((t) => t.toLowerCase())
+	return models.filter((model) => {
+		const modelTagsLower = model.tags.map((t) => t.toLowerCase())
+		return lowerTags.every((tag) => modelTagsLower.includes(tag))
+	})
+}
+
+/**
+ * kilocode_change — Sort a list of ModelMetadata using AcousticModelIndex.sort().
+ * Accepts the same SortOrder values: "recentlyUsed" | "mostUsed" |
+ * "alphabetical" | "size" | "quality".
+ */
+export function sortModels(models: ModelMetadata[], by: SortOrder): ModelMetadata[] {
+	// kilocode_change
+	return AcousticModelIndex.sort(models, by)
 }

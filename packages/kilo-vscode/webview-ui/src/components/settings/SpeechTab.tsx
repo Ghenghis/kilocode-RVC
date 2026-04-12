@@ -24,6 +24,12 @@ interface SpeechSettings {
   browser: { voiceURI: string; rate: number; pitch: number }
   debugMode: boolean
   kiloDebugMode: boolean
+  // kilocode_change — Phase 2.3: sentiment intensity
+  sentimentIntensity: number
+  // kilocode_change — Phase 3.1: interrupt on type
+  interruptOnType: boolean
+  // kilocode_change — Phase 4.2: multi-voice dialogue mode
+  multiVoiceMode: boolean
 }
 
 const DEFAULT_SPEECH: SpeechSettings = {
@@ -37,6 +43,10 @@ const DEFAULT_SPEECH: SpeechSettings = {
   browser: { voiceURI: "", rate: 1.0, pitch: 1.0 },
   debugMode: false,
   kiloDebugMode: false,
+  // kilocode_change — Phase 2.3 / 3.1 / 4.2 new fields
+  sentimentIntensity: 70,
+  interruptOnType: true,
+  multiVoiceMode: false,
 }
 
 interface ProviderOption {
@@ -693,10 +703,114 @@ const SpeechTab: Component = () => {
         </SettingsRow>
       </Card>
 
+      {/* ── kilocode_change: Phase 2.3 — Sentiment Intensity + Interrupt on Type ── */}
+      <Card>
+        <SettingsRow
+          title="Sentiment Intensity"
+          description="How strongly the TTS engine modulates pitch and rate to reflect emotional tone in responses."
+        >
+          <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+            <input
+              type="range" min="0" max="100" step="1"
+              value={settings().sentimentIntensity}
+              onInput={(e) => updateField("sentimentIntensity", Number(e.currentTarget.value))}
+              style={{ width: "120px" }}
+            />
+            <span style={{ "font-size": "12px", color: "var(--vscode-descriptionForeground)", "min-width": "40px" }}>
+              {settings().sentimentIntensity}%
+            </span>
+          </div>
+        </SettingsRow>
+
+        {/* kilocode_change: Phase 3.1 — Interrupt on type */}
+        <SettingsRow
+          title="Stop speech when typing"
+          description="Automatically interrupt ongoing speech playback as soon as you start typing a new message."
+          last
+        >
+          <Switch checked={settings().interruptOnType} onChange={(c: boolean) => updateField("interruptOnType", c)} hideLabel>
+            Stop speech when typing
+          </Switch>
+        </SettingsRow>
+      </Card>
+
+      {/* ── kilocode_change: Phase 2.3 — Voice Profiles (task-type heuristics) ── */}
+      <Card>
+        <div style={{ padding: "12px 12px 4px 12px" }}>
+          <div style={{ "font-size": "12px", "font-weight": "600", "margin-bottom": "4px" }}>Voice Profiles</div>
+          <div style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)", "margin-bottom": "10px" }}>
+            Applied automatically based on content detection. Intensity is scaled by the Sentiment Intensity setting above.
+          </div>
+          <table style={{
+            width: "100%", "border-collapse": "collapse",
+            "font-size": "11px", color: "var(--vscode-foreground)",
+          }}>
+            <thead>
+              <tr style={{ "border-bottom": "1px solid var(--vscode-panel-border)" }}>
+                <th style={{ "text-align": "left", padding: "4px 8px 4px 0", color: "var(--vscode-descriptionForeground)", "font-weight": "600" }}>Content type</th>
+                <th style={{ "text-align": "left", padding: "4px 8px 4px 0", color: "var(--vscode-descriptionForeground)", "font-weight": "600" }}>Profile</th>
+                <th style={{ "text-align": "left", padding: "4px 0", color: "var(--vscode-descriptionForeground)", "font-weight": "600" }}>Modifiers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                { type: "Error / stack trace", profile: "serious", modifiers: "Pitch −1 st · Rate 0.95×" },
+                { type: "Success / completion", profile: "upbeat", modifiers: "Pitch ±0 · Rate 1.0×" },
+                { type: "Code explanation", profile: "teaching", modifiers: "Pitch ±0 · Rate 0.9×" },
+                { type: "Quick confirmation", profile: "casual", modifiers: "Pitch +0.5 st · Rate 1.1×" },
+              ] as const).map((row, i, arr) => (
+                <tr style={{ "border-bottom": i < arr.length - 1 ? "1px solid var(--vscode-panel-border)" : "none" }}>
+                  <td style={{ padding: "5px 8px 5px 0" }}>{row.type}</td>
+                  <td style={{ padding: "5px 8px 5px 0" }}>
+                    <span style={{
+                      display: "inline-block", padding: "1px 6px", "border-radius": "10px",
+                      background: "var(--vscode-badge-background)", color: "var(--vscode-badge-foreground)",
+                      "font-size": "10px", "font-weight": "500",
+                    }}>{row.profile}</span>
+                  </td>
+                  <td style={{ padding: "5px 0", color: "var(--vscode-descriptionForeground)" }}>{row.modifiers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ height: "8px" }} />
+      </Card>
+
+      {/* ── kilocode_change: Phase 4.2 — Multi-Agent Voice ─────────────── */}
+      <Card>
+        <SettingsRow
+          title="Multi-Voice Dialogue Mode"
+          description="Each AI agent speaks in a distinct voice when multiple agents are active in a conversation."
+          last
+        >
+          <Switch checked={settings().multiVoiceMode} onChange={(c: boolean) => updateField("multiVoiceMode", c)} hideLabel>
+            Multi-Voice Dialogue Mode
+          </Switch>
+        </SettingsRow>
+      </Card>
+
       {/* ── Fallback Info ──────────────────────────────────────────────── */}
       <div style={{ "font-size": "11px", color: "var(--vscode-descriptionForeground)", padding: "4px 0" }}>
         Fallback chain: <strong>RVC</strong> → <strong>Azure</strong> → <strong>Browser</strong> &nbsp;|&nbsp;
         If the selected provider fails, speech automatically falls back to the next available provider.
+      </div>
+
+      {/* ── kilocode_change: Phase 6.1 — Voice slash-command reference ─── */}
+      <div style={{
+        background: "var(--vscode-textBlockQuote-background)",
+        border: "1px solid var(--vscode-panel-border)",
+        "border-radius": "4px", padding: "10px 14px",
+      }}>
+        <div style={{ "font-size": "11px", "font-weight": "600", "margin-bottom": "6px", color: "var(--vscode-foreground)" }}>
+          Voice Commands
+        </div>
+        <div style={{ "font-size": "11px", "line-height": "1.8", color: "var(--vscode-descriptionForeground)" }}>
+          <div><code style={{ color: "var(--vscode-textPreformat-foreground)" }}>/voice snoop-dogg</code> — switch voice mid-conversation</div>
+          <div><code style={{ color: "var(--vscode-textPreformat-foreground)" }}>/voice auto</code> — enable context-aware voice routing</div>
+          <div><code style={{ color: "var(--vscode-textPreformat-foreground)" }}>/voice compare</code> — speak response in all installed voices</div>
+          <div><code style={{ color: "var(--vscode-textPreformat-foreground)" }}>/voice status</code> — show active voice and health</div>
+        </div>
       </div>
     </div>
   )

@@ -2296,6 +2296,10 @@ export class KiloProvider implements vscode.WebviewViewProvider, TelemetryProper
         },
         debugMode: speech.get<boolean>("debugMode", false),
         kiloDebugMode: vscode.workspace.getConfiguration().get<boolean>("kilo-code.debugMode", false),
+        // kilocode_change — Phase 2.3 / 3.1 / 4.2 new speech settings
+        sentimentIntensity: speech.get<number>("sentimentIntensity", 70),
+        interruptOnType: speech.get<boolean>("interruptOnType", true),
+        multiVoiceMode: speech.get<boolean>("multiVoiceMode", false),
       },
     })
   }
