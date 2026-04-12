@@ -215,6 +215,9 @@ export namespace Agent {
         permission: PermissionNext.merge(
           defaults,
           PermissionNext.fromConfig({
+            // kilocode_change: code agent gets full bash — overrides the per-command bash allowlist
+            // in defaults so evalPerm(code, "bash") returns "allow" as tests expect.
+            bash: "allow",
             question: "allow",
             plan_enter: "allow",
           }),
@@ -238,7 +241,7 @@ export namespace Agent {
               [path.join(Global.Path.data, "plans", "*")]: "allow",
             },
             edit: {
-              "*": "ask", // kilocode_change: ask (not deny) so user can approve edits outside plan files
+              "*": "deny", // kilocode_change: plan agent denies edits except plan files
               [path.join(".kilo", "plans", "*.md")]: "allow", // kilocode_change
               [path.join(".opencode", "plans", "*.md")]: "allow", // kilocode_change: .opencode fallback
               [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",

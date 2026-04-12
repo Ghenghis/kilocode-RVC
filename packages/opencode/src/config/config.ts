@@ -282,7 +282,9 @@ export namespace Config {
       // kilocode_change start
       for (const file of ["kilo.jsonc", "kilo.json", "opencode.jsonc", "opencode.json"]) {
         try {
-          result = mergeConfigConcatArrays(result, await loadFile(file))
+          // kilocode_change: use Instance.directory (project root) not CWD so tests and CLI
+          // both read project config from the correct location regardless of working directory.
+          result = mergeConfigConcatArrays(result, await loadFile(path.join(Instance.directory, file)))
         } catch (err) {
           caught(err, file)
         }

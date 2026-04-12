@@ -19,6 +19,17 @@ export namespace EventStream {
     ),
   }
 
+  // kilocode_change — monotonic timestamp counter: guarantees that two appends
+  // within the same millisecond receive distinct, strictly-increasing timestamps
+  // so that lexicographic filename sort always reflects insertion order.
+  let _lastTs = 0
+
+  function monotonicNow(): number {
+    const now = Date.now()
+    _lastTs = now > _lastTs ? now : _lastTs + 1
+    return _lastTs
+  }
+
   // ── Helpers ─────────────────────────────────────────────────────────
 
   function eventsDir(sessionID: string): string {
@@ -48,7 +59,7 @@ export namespace EventStream {
     const event: AgentEvent.Info = AgentEvent.Info.parse({
       ...input,
       id: randomUUID(),
-      timestamp: Date.now(),
+      timestamp: monotonicNow(), // kilocode_change: monotonic to preserve insertion order within same ms
     })
 
     const dir = eventsDir(event.sessionID)

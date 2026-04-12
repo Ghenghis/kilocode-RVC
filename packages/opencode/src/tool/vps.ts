@@ -30,6 +30,21 @@ interface VpsParams {
   options?: string
 }
 
+// kilocode_change — reject shell-dangerous characters in name/region/size/image/sshKey params.
+// Although spawn() doesn't invoke a shell, values are embedded into single-argument template
+// strings (e.g. AWS tag-specifications JSON), where malicious characters could corrupt the
+// argument value passed to the downstream CLI.
+const DANGEROUS_CHARS = /[`$(){}|;&<>!"'\\\n\r\t]/
+
+function validateParam(value: string, paramName: string): void {
+  if (DANGEROUS_CHARS.test(value)) {
+    throw new Error(
+      `Invalid ${paramName}: "${value}" contains characters that are not allowed. ` +
+        `Use only alphanumeric characters, hyphens, underscores, dots, and forward slashes.`,
+    )
+  }
+}
+
 // kilocode_change — split options string into argv array, respecting quoted values
 function splitOptions(options: string): string[] {
   const args: string[] = []
@@ -287,6 +302,13 @@ export const VpsTool = Tool.define("vps", async () => {
     }),
     async execute(params, ctx) {
       const startTime = Date.now()
+
+      // kilocode_change — validate user-supplied params before embedding them into CLI arguments
+      validateParam(params.name, "name")
+      if (params.region) validateParam(params.region, "region")
+      if (params.size) validateParam(params.size, "size")
+      if (params.image) validateParam(params.image, "image")
+      if (params.sshKey) validateParam(params.sshKey, "sshKey")
 
       log.info("vps execute", { action: params.action, provider: params.provider, name: params.name })
 
