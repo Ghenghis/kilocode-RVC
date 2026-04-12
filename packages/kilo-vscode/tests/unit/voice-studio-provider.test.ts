@@ -107,7 +107,7 @@ const DEFAULT_SPEECH: Record<string, unknown> = {
 	"rvc.edgeVoice": "en-US-AriaNeural",
 	"rvc.pitchShift": 0,
 	"rvc.modelServerUrl": "https://voice.daveai.tech",
-	"azure.region": "eastus",
+	"azure.region": "westus",
 	"azure.apiKey": "",
 	"azure.voiceId": "en-US-JennyNeural",
 	"browser.voiceURI": "",
@@ -689,7 +689,7 @@ describe("VoiceStudioProvider", () => {
 			expect(rvc.modelServerUrl).toBe("https://voice.daveai.tech")
 
 			const azure = settings.azure as Record<string, unknown>
-			expect(azure.region).toBe("eastus")
+			expect(azure.region).toBe("westus")
 			expect(azure.apiKey).toBe("")
 			expect(azure.voiceId).toBe("en-US-JennyNeural")
 
