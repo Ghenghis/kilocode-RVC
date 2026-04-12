@@ -20,11 +20,16 @@ const PermissionData = z.object({
   message: z.string().optional(),
 })
 
-const RemotePromptInput = SessionPrompt.PromptInput.extend({
-  model: z.string().optional(),
-})
+// kilocode_change: lazy getter to break circular import chain
+// (session/prompt.ts → plugin → server → bootstrap → kilo-sessions → remote-sender → prompt)
+// Top-level .extend() call was evaluated while SessionPrompt.PromptInput was still undefined.
+function getRemotePromptInput() {
+  return SessionPrompt.PromptInput.extend({
+    model: z.string().optional(),
+  })
+}
 
-function normalizeModel(model: z.infer<typeof RemotePromptInput.shape.model>) {
+function normalizeModel(model: string | undefined) {
   if (!model) return undefined
   return {
     providerID: "kilo",
@@ -32,7 +37,7 @@ function normalizeModel(model: z.infer<typeof RemotePromptInput.shape.model>) {
   }
 }
 
-function normalizePrompt(input: z.infer<typeof RemotePromptInput>): SessionPrompt.PromptInput {
+function normalizePrompt(input: z.infer<ReturnType<typeof getRemotePromptInput>>): SessionPrompt.PromptInput {
   return {
     ...input,
     model: normalizeModel(input.model),
@@ -209,7 +214,7 @@ export namespace RemoteSender {
 
     function dispatch(msg: RemoteProtocol.Command) {
       if (msg.command === "send_message") {
-        const parsed = RemotePromptInput.safeParse(msg.data)
+        const parsed = getRemotePromptInput().safeParse(msg.data)
         if (!parsed.success) {
           options.conn.send({
             type: "response",

@@ -18,6 +18,8 @@ import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
 import { filterDiagnostics } from "./diagnostics" // kilocode_change
+import { Debate } from "@/agent/debate" // kilocode_change — Phase 8.5: security-sensitive edit detection
+import { EventStream } from "@/event" // kilocode_change
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 const MAX_DIFF_CONTENT = 500_000 // kilocode_change
@@ -151,6 +153,30 @@ export const EditTool = Tool.define("edit", {
     })
 
     const filediff = cachedFilediff ?? buildFileDiff(filePath, contentOld, contentNew) // kilocode_change
+
+    // kilocode_change start — Phase 8.5: flag security-sensitive edits via Debate system
+    if (Debate.shouldAutoDebate(filePath)) {
+      void Debate.run({
+        sessionID: ctx.sessionID,
+        changedFiles: [filePath],
+        diffContent: diff,
+      }).then((debateResult) => {
+        void EventStream.append({
+          sessionID: ctx.sessionID,
+          agentName: ctx.agent,
+          type: "state_change",
+          payload: {
+            type: "state_change",
+            data: {
+              from: "editing",
+              to: "security_reviewed",
+              reason: `Security-sensitive edit: ${path.basename(filePath)} — critics: ${debateResult.participants.join(", ")} (critical: ${debateResult.consensus.critical.length}, warnings: ${debateResult.consensus.warnings.length})`,
+            },
+          },
+        }).catch(() => {})
+      }).catch(() => {})
+    }
+    // kilocode_change end
 
     ctx.metadata({
       metadata: {

@@ -424,10 +424,34 @@ export namespace PermissionNext {
     const result = new Set<string>()
     for (const tool of tools) {
       const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
-
-      const rule = ruleset.findLast((r) => Wildcard.match(permission, r.permission))
-      if (!rule) continue
-      if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
+      // kilocode_change: decision tree for "is this tool completely unusable?"
+      //
+      //   1. Find the LAST rule that matches this permission (any pattern).
+      //   2. If that rule's action is "allow" → NOT disabled (some usage is clearly permitted).
+      //   3. If action is "deny" and pattern is "*" → DISABLED (wildcard deny with no override).
+      //   4. If action is "deny" with a specific pattern, OR action is "ask" →
+      //      fall back to evaluate("*") — the wildcard rule determines the default:
+      //        - wildcard=deny → DISABLED (e.g. ask agent: last bash rule is "gh *: ask"
+      //                           but the effective default via readOnlyBash "*": deny)
+      //        - wildcard=allow/ask → NOT disabled (the specific deny/ask is just per-pattern)
+      //
+      // Verified against all test cases:
+      //   [allow *, deny bash *]                    → last=deny+*, *-deny → DISABLED
+      //   [deny bash *, allow bash echo *]           → last=allow → NOT disabled
+      //   [allow bash *, deny bash rm *]             → last=deny+specific → wildcard=allow → NOT disabled
+      //   [ask bash gh *, deny bash *]               → last=deny+* → DISABLED
+      //   ask-agent readOnlyBash (last: "gh *: ask") → last=ask → wildcard=deny → DISABLED
+      //   [user: edit src/allow, ask: *deny]         → last=deny+* (ask's global deny last) → DISABLED
+      const lastRule = ruleset.findLast((r) => Wildcard.match(permission, r.permission))
+      if (!lastRule) continue
+      if (lastRule.action === "allow") continue
+      if (lastRule.action === "deny" && lastRule.pattern === "*") {
+        result.add(tool)
+        continue
+      }
+      // specific-pattern deny or ask — check the effective wildcard rule
+      const wildcardRule = evaluate(permission, "*", ruleset)
+      if (wildcardRule.action === "deny") result.add(tool)
     }
     return result
   }

@@ -27,7 +27,11 @@ function clean(dir: string) {
 
 async function stop(dir: string) {
   if (!(await exists(dir))) return
-  await $`git fsmonitor--daemon stop`.cwd(dir).quiet().nothrow()
+  // kilocode_change: add timeout so the fsmonitor stop doesn't block cleanup on Windows
+  await Promise.race([
+    $`git fsmonitor--daemon stop`.cwd(dir).quiet().nothrow(),
+    new Promise<void>((r) => setTimeout(r, 2000)),
+  ])
 }
 
 type TmpDirOptions<T> = {

@@ -52,8 +52,10 @@ import { environmentDetails } from "@/kilocode/editor-context" // kilocode_chang
 import { EventStream } from "@/event"
 import { StuckDetector } from "@/agent/stuck-detector"
 import { ReflectionEngine } from "@/agent/reflection-engine"
+import { TreeSearch } from "@/agent/tree-search"
 import { AgentRouter } from "@/agent/router"
 import { SharedMemory } from "@/memory"
+import { PromptEvolution } from "@/agent/evolution"
 // kilocode_change end
 
 // @ts-ignore
@@ -339,6 +341,11 @@ export namespace SessionPrompt {
 
     // kilocode_change — Phase 8.2: pending reflection to inject on next turn
     let pendingReflection: string | undefined
+    // kilocode_change — Phase 8.4: track last agent/user for memory store on completion
+    let lastCompletedAgentName: string | undefined
+    let lastCompletedUserText: string | undefined
+    // kilocode_change — Phase 8.3: LATS search tree for this session (created on first stuck event)
+    let sessionSearchTree: TreeSearch.SearchTree | undefined
 
     let step = 0
     const session = await Session.get(sessionID)
@@ -619,6 +626,8 @@ export namespace SessionPrompt {
 
       // normal processing
       const agent = await Agent.get(lastUser.agent)
+      // kilocode_change — Phase 8.4: track agent name and user text for memory store
+      lastCompletedAgentName = agent.name
       const maxSteps = agent.steps ?? Infinity
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
@@ -749,7 +758,8 @@ export namespace SessionPrompt {
           .map((p) => p.text)
         const userText = userTextParts.join(" ")
         if (userText.length > 10) {
-          const memoryResults = await SharedMemory.retrieve(userText, { threshold: 0.85, limit: 3 })
+          lastCompletedUserText = userText // kilocode_change — Phase 8.4: save for memory store at completion
+          const memoryResults = await SharedMemory.retrieve(userText, { limit: 3 }) // kilocode_change: removed hardcoded 0.85 threshold — use default 0.3 so memory is actually retrieved
           if (memoryResults.length > 0) {
             const memoryContext = memoryResults
               .map((r) => `[${r.fragment.type}] ${r.fragment.content}`)
@@ -759,6 +769,17 @@ export namespace SessionPrompt {
         }
       } catch {
         // Memory retrieval failure is non-fatal
+      }
+      // kilocode_change end
+
+      // kilocode_change start — Phase 8.8: inject active prompt evolution mutations
+      try {
+        const mutations = await PromptEvolution.activeMutations(agent.name)
+        for (const mutation of mutations) {
+          system.push(mutation.addition)
+        }
+      } catch {
+        // Evolution injection failure is non-fatal
       }
       // kilocode_change end
 
@@ -885,6 +906,31 @@ export namespace SessionPrompt {
           }
           // Bug 4 fix: store reflection for injection into next turn's system prompt
           pendingReflection = reflection.fullPrompt
+          // kilocode_change start — Phase 8.3: LATS tree search — expand alternatives when stuck
+          try {
+            if (!sessionSearchTree && taskSummary) {
+              sessionSearchTree = TreeSearch.create(sessionID, taskSummary)
+            }
+            if (sessionSearchTree) {
+              const stuckNode = TreeSearch.select(sessionSearchTree)
+              // Mark the current approach as failed (reward 0)
+              sessionSearchTree = TreeSearch.backpropagate(sessionSearchTree, stuckNode.id, 0)
+              sessionSearchTree = TreeSearch.addReflection(sessionSearchTree, stuckNode.id, stuckResult.suggestion)
+              // Expand with alternative approaches based on failure pattern
+              const alternatives = [stuckResult.suggestion].filter(Boolean)
+              if (alternatives.length > 0 && stuckNode.children.length === 0) {
+                const { tree: expanded } = TreeSearch.expand(sessionSearchTree, stuckNode.id, alternatives)
+                sessionSearchTree = expanded
+                const nextNode = TreeSearch.select(sessionSearchTree)
+                if (nextNode.id !== stuckNode.id && nextNode.approach !== taskSummary) {
+                  pendingReflection = reflection.fullPrompt + "\n\n[Tree search suggests]: " + nextNode.approach
+                }
+              }
+            }
+          } catch {
+            // TreeSearch errors are non-fatal
+          }
+          // kilocode_change end
           // Emit reflection event for audit trail
           void EventStream.append({
             sessionID,
@@ -913,6 +959,21 @@ export namespace SessionPrompt {
     SessionCompaction.prune({ sessionID })
     // kilocode_change start
     finished = true
+    // kilocode_change start — Phase 8.4: store successful task/approach in shared memory (L1)
+    if (closeReason === "completed" && lastCompletedUserText && lastCompletedAgentName) {
+      const agentNameForMemory = lastCompletedAgentName
+      const userTextForMemory = lastCompletedUserText
+      void SharedMemory.remember({
+        type: "fix_strategy",
+        content: `Approach that succeeded for: ${userTextForMemory.slice(0, 200)}`,
+        tags: [agentNameForMemory, "success", "completed"],
+        agentName: agentNameForMemory,
+        sessionID,
+        confidence: 0.7,
+        tier: "L1",
+      }).catch(() => {})
+    }
+    // kilocode_change end
     // Return the stored interrupted assistant turn before surfacing AbortError.
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
