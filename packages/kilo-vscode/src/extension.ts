@@ -18,6 +18,7 @@ import { registerCodeActions, registerTerminalActions, KiloCodeActionProvider } 
 import { registerToggleAutoApprove } from "./commands/toggle-auto-approve"
 import { VoiceStudioProvider } from "./VoiceStudioProvider"
 import { DebugCollector } from "./services/debug/DebugCollector"
+import { registerDebugTestCommand } from "./services/debug/DebugTestSuite"
 
 // Activated via "onStartupFinished" (package.json) so that commands, code actions, keybindings,
 // autocomplete, commit-message generation, and URI deep links all work immediately — without
@@ -483,6 +484,9 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(logFile))
     }),
   )
+
+  // Register the comprehensive E2E debug test suite command
+  registerDebugTestCommand(context)
 
   // Apply debug mode at startup — always attach provider hook unconditionally.
   // attachProviderDebugHook sets hook to null when disabled, so the conditional is

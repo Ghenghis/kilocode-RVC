@@ -324,6 +324,11 @@
         "command": "kilo-code.new.openDebugLog",
         "title": "Open Debug Log",
         "category": "Kilo Code"
+      },
+      {
+        "command": "kilo-code.runDebugTests",
+        "title": "Run E2E Debug Test Suite",
+        "category": "Kilo Code"
       }
     ],
     "submenus": [
@@ -803,7 +808,7 @@
         },
         "kilo-code.new.speech.azure.region": {
           "type": "string",
-          "default": "eastus",
+          "default": "westus",
           "description": "Azure Cognitive Services region."
         },
         "kilo-code.new.speech.azure.apiKey": {
