@@ -30,6 +30,11 @@ import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
 import { RecallTool } from "./recall" // kilocode_change
+// kilocode_change start - infrastructure agent tools
+import { SshTool } from "./ssh"
+import { DockerTool } from "./docker"
+import { DeployTool } from "./deploy"
+// kilocode_change end
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 
@@ -123,6 +128,9 @@ export namespace ToolRegistry {
       ApplyPatchTool,
       ...(Flag.KILO_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
+      // kilocode_change start - infrastructure agent tools, gated behind experimental flag
+      ...(config.experimental?.infra_tools === true ? [SshTool, DockerTool, DeployTool] : []),
+      // kilocode_change end
       PlanExitTool, // kilocode_change - always registered; gated by agent permission instead
       ...custom,
     ]
