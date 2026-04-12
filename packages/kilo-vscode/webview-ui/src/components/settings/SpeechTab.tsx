@@ -218,19 +218,33 @@ const SpeechTab: Component = () => {
     stopPlayback()
   })
 
-  // Check RVC health + fetch voices when provider is rvc
+  // kilocode_change: RVC health + voices routed through the VoiceRouter proxy at 7892.
+  // Direct fetch to http://localhost:5050 fails in VS Code webviews due to CORS —
+  // Docker containers don't set Access-Control-Allow-Origin headers.
+  // The proxy at 7892 runs in Node.js (no CORS) and also scans ports 5050-5059.
+  const RVC_PROXY = "http://localhost:7892"
+
   const refreshRvc = async () => {
-    const port = settings().rvc.dockerPort
     setRvcLoading(true)
     try {
-      const healthResp = await fetch(`http://localhost:${port}/health`)
-      setRvcOnline(healthResp.ok)
+      const healthResp = await fetch(`${RVC_PROXY}/rvc/health`)
       if (healthResp.ok) {
-        const voicesResp = await fetch(`http://localhost:${port}/voices`)
-        if (voicesResp.ok) {
-          const voices = await voicesResp.json()
-          setRvcVoices(Array.isArray(voices) ? voices : [])
+        const healthData = await healthResp.json() as { ok: boolean; port?: number }
+        setRvcOnline(healthData.ok)
+        // If port scan found a different port, update settings
+        if (healthData.port && healthData.port !== settings().rvc.dockerPort) {
+          updateNested("rvc", "dockerPort", healthData.port)
         }
+        if (healthData.ok) {
+          const voicesResp = await fetch(`${RVC_PROXY}/rvc/voices`)
+          if (voicesResp.ok) {
+            const voices = await voicesResp.json()
+            setRvcVoices(Array.isArray(voices) ? voices : [])
+          }
+        }
+      } else {
+        setRvcOnline(false)
+        setRvcVoices([])
       }
     } catch {
       setRvcOnline(false)

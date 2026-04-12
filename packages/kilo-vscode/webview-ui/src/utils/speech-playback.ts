@@ -399,15 +399,16 @@ class SpeechEngine {
     if (!basic.ready) return basic
 
     if (provider === "rvc") {
-      // kilocode_change: use VoiceRouter proxy (CORS-safe) instead of direct Docker port
+      // kilocode_change: use VoiceRouter proxy (CORS-safe, port-scanning) instead of direct Docker port.
+      // The proxy scans 5050-5059 from Node.js where CORS is not enforced.
       try {
         const resp = await fetch(`http://localhost:${VOICE_ROUTER_PORT}/rvc/health`, {
-          signal: AbortSignal.timeout(3000),
+          signal: AbortSignal.timeout(5000),
         })
-        if (!resp.ok) return { ready: false, reason: "RVC container returned unhealthy status" }
+        if (!resp.ok) return { ready: false, reason: "RVC container not found on ports 5050–5059" }
         return { ready: true }
       } catch {
-        return { ready: false, reason: `RVC container not reachable on port ${config.rvc.dockerPort}` }
+        return { ready: false, reason: `RVC proxy not reachable — VS Code may need a reload (port ${VOICE_ROUTER_PORT})` }
       }
     }
 
