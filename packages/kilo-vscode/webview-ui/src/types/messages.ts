@@ -1524,6 +1524,7 @@ export type ExtensionMessage =
   | DiskUsageMessage
   | RvcSetupProgressMessage
   | DebugModeEnabledMessage
+  | SettingUpdatedMessage
 
 // ============================================
 // Messages FROM webview TO extension
@@ -1900,6 +1901,15 @@ export interface RvcSetupProgressMessage {
  */
 export interface DebugModeEnabledMessage {
   type: "debugModeEnabled"
+}
+
+/** Confirmation sent back after handleUpdateSetting succeeds or fails. */
+export interface SettingUpdatedMessage {
+  type: "settingUpdated"
+  key: string
+  value: unknown
+  success: boolean
+  error?: string
 }
 
 export interface FetchVoiceLibraryMessage {
