@@ -48,6 +48,13 @@ import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 import { PlanFollowup } from "@/kilocode/plan-followup" // kilocode_change
 import { environmentDetails } from "@/kilocode/editor-context" // kilocode_change
+// kilocode_change start — Phase 8 agent enhancement integrations
+import { EventStream } from "@/event"
+import { StuckDetector } from "@/agent/stuck-detector"
+import { ReflectionEngine } from "@/agent/reflection-engine"
+import { AgentRouter } from "@/agent/router"
+import { SharedMemory } from "@/memory"
+// kilocode_change end
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -730,6 +737,27 @@ export namespace SessionPrompt {
         ...(await SystemPrompt.environment(model, lastUser.editorContext)),
         ...(await InstructionPrompt.system()),
       ] // kilocode_change
+
+      // kilocode_change start — Phase 8.4: retrieve-before-work shared memory injection
+      try {
+        const userParts = await MessageV2.parts(lastUser.id)
+        const userTextParts = userParts
+          .filter((p): p is MessageV2.TextPart => p.type === "text")
+          .map((p) => p.text)
+        const userText = userTextParts.join(" ")
+        if (userText.length > 10) {
+          const memoryResults = await SharedMemory.retrieve(userText, { threshold: 0.85, limit: 3 })
+          if (memoryResults.length > 0) {
+            const memoryContext = memoryResults
+              .map((r) => `[${r.fragment.type}] ${r.fragment.content}`)
+              .join("\n")
+            system.push(`<shared-memory>\nRelevant knowledge from previous agent sessions:\n${memoryContext}\n</shared-memory>`)
+          }
+        }
+      } catch {
+        // Memory retrieval failure is non-fatal
+      }
+      // kilocode_change end
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
@@ -787,6 +815,42 @@ export namespace SessionPrompt {
         else if (processor.message.error) closeReason = "error"
         break
       }
+
+      // kilocode_change start — Phase 8.2: stuck detection after each agent turn
+      try {
+        const turnParts = await MessageV2.parts(processor.message.id)
+        const stuckMessages = turnParts.map((p) => ({
+          role: "assistant" as const,
+          content: p.type === "tool"
+            ? JSON.stringify({ tool: p.tool, input: (p.state as any)?.input })
+            : ("text" in p ? String((p as any).text) : ""),
+        }))
+        const agentOpts = agent.name === "debug" ? StuckDetector.DEBUG_OPTIONS : undefined
+        const stuckResult = StuckDetector.check(stuckMessages, agentOpts)
+        if (stuckResult.stuck) {
+          // Get user's task summary from the message parts
+          const userParts = await MessageV2.parts(lastUser.id)
+          const taskText = userParts.find((p) => p.type === "text")
+          const taskSummary = taskText && "text" in taskText ? String((taskText as any).text) : undefined
+          const reflection = ReflectionEngine.reflect(stuckResult, { sessionID, taskSummary })
+          if (ReflectionEngine.shouldEscalate(sessionID)) {
+            log.warn("stuck detection: escalating to user", { pattern: stuckResult.pattern, sessionID })
+          } else {
+            log.info("stuck detection: injecting reflection", { pattern: stuckResult.pattern, sessionID })
+          }
+          // Emit reflection event for audit trail
+          void EventStream.append({
+            sessionID,
+            agentName: agent.name,
+            type: "reflection",
+            payload: { type: "reflection", data: { summary: reflection.fullPrompt, learnings: [stuckResult.suggestion], failedApproach: stuckResult.pattern } },
+          }).catch(() => {})
+        }
+      } catch (e) {
+        log.warn("stuck detection failed, continuing normally", { error: String(e) })
+      }
+      // kilocode_change end
+
       // kilocode_change end
       if (result === "compact") {
         await SessionCompaction.create({
@@ -893,6 +957,15 @@ export namespace SessionPrompt {
               args,
             },
           )
+          // kilocode_change start — Phase 8.1: emit ActionEvent before tool execution
+          const actionEventID = await EventStream.append({
+            sessionID: ctx.sessionID,
+            agentName: ctx.agent,
+            type: "action",
+            payload: { type: "action", data: { tool: item.id, input: args } },
+          }).then((e) => e.id).catch(() => undefined)
+          // kilocode_change end
+          const toolStart = Date.now()
           const result = await item.execute(args, ctx)
           const output = {
             ...result,
@@ -903,6 +976,23 @@ export namespace SessionPrompt {
               messageID: input.processor.message.id,
             })),
           }
+          // kilocode_change start — Phase 8.1: emit ObservationEvent after tool execution
+          void EventStream.append({
+            sessionID: ctx.sessionID,
+            agentName: ctx.agent,
+            type: "observation",
+            payload: {
+              type: "observation",
+              data: {
+                tool: item.id,
+                output: typeof output.output === "string" ? output.output.slice(0, 2000) : "",
+                success: !output.metadata?.error,
+                durationMs: Date.now() - toolStart,
+              },
+            },
+            parentEventID: actionEventID,
+          }).catch(() => {})
+          // kilocode_change end
           await Plugin.trigger(
             "tool.execute.after",
             {
@@ -1045,7 +1135,32 @@ export namespace SessionPrompt {
   }
 
   async function createUserMessage(input: PromptInput) {
-    const agent = await Agent.get(input.agent ?? (await Agent.defaultAgent()))
+    // kilocode_change start — Phase 8.7: auto-route to best agent when none explicitly chosen
+    let agentName = input.agent
+    if (!agentName) {
+      try {
+        const { Config } = await import("@/config/config")
+        const cfg = await Config.get()
+        if (cfg.experimental?.agent_router) {
+          const userText = (input.parts ?? [])
+            .filter((p) => p.type === "text" && "text" in p)
+            .map((p) => (p as any).text as string)
+            .join(" ")
+          if (userText.length > 0) {
+            const routeResult = await AgentRouter.route(userText)
+            if (routeResult.score > 0.1) {
+              agentName = routeResult.agent
+              log.info("agent router selected", { agent: agentName, score: routeResult.score, reason: routeResult.reason })
+            }
+          }
+        }
+      } catch {
+        // Router failure is non-fatal; fall through to default
+      }
+      agentName ??= await Agent.defaultAgent()
+    }
+    const agent = await Agent.get(agentName)
+    // kilocode_change end
 
     const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
     const full =
